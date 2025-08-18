@@ -1,0 +1,39 @@
+services:
+  db:
+    image: postgres:17
+    container_name: postgres_db
+    restart: always
+    environment:
+      POSTGRES_DB: students
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: Favor1teo
+    volumes:
+      - db-data:/var/lib/postgresql/data
+      - ./internal/storage/postgres/schema/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    ports:
+      - "5432:5432"
+  redis:
+    image: redis:8.2.0
+    container_name: redis_server
+    restart: always
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: my-app
+    ports:
+      - "8080:8080"
+    env_file:
+      - .env
+    depends_on:
+      - db
+      - redis
+
+volumes:
+  db-data:
+  redis-data:
