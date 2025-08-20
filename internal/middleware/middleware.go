@@ -3,6 +3,7 @@ package middleware
 import (
 	"todo/internal/log"
 	"todo/internal/storage/redis"
+	"todo/internal/http/context"
 	"context"
 	"net/http"
 	"strconv"
@@ -23,13 +24,8 @@ var PublicRoutes = map[string]string{
 	"/health":   "GET",
 	"/register": "POST",
 	"/login":    "POST",
-	"/dbtasks":  "GET",
-	"/dbusers":  "GET",
 }
 
-type contextKey string
-
-const UserIDKey contextKey = "userID"
 
 func LoggingMiddleWare(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -90,7 +86,7 @@ func AuthMiddleWare(next http.Handler) http.Handler {
 			return
 		}
 
-		ctx := context.WithValue(r.Context(), UserIDKey, user_id)
+		ctx := context.WithValue(r.Context(), ctx.UserIDKey, user_id)
 
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})

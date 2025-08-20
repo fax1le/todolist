@@ -7,6 +7,11 @@ services:
       POSTGRES_DB: students
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: Favor1teo
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d students"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
     volumes:
       - db-data:/var/lib/postgresql/data
       - ./internal/storage/postgres/schema/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
@@ -16,6 +21,11 @@ services:
     image: redis:8.2.0
     container_name: redis_server
     restart: always
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
     ports:
       - "6379:6379"
     volumes:
@@ -31,9 +41,9 @@ services:
     env_file:
       - .env
     depends_on:
-      - db
-      - redis
-
+      db: { condition: service_healthy}
+      redis: { condition: service_healthy}
+      
 volumes:
   db-data:
   redis-data:

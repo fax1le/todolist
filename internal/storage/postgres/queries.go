@@ -3,7 +3,7 @@ package db
 import (
 	"todo/internal/models"
 	"todo/internal/utils/password"
-	task_utils "todo/internal/utils/task"
+	"todo/internal/utils/task"
 	"time"
 )
 
@@ -78,6 +78,8 @@ func SelectTask(user_id int, task_uuid string) (models.Task, error) {
 }
 
 func UpdateTask(user_id int, task_uuid string) error {
+	// Change the logic
+	
 	var i int
 
 	row := DB.QueryRow("SELECT 1 FROM tasks WHERE user_id = $1 AND completed = false AND id = $2", user_id, task_uuid)
@@ -143,7 +145,7 @@ func CreateUser(user models.User) error {
 	return nil
 }
 
-func MustGetPasswordFromEmail(email string) string {
+func MustGetPassword(email string) string {
 	var hashed_password string
 
 	row := DB.QueryRow("SELECT hashed_password FROM users WHERE email=$1", email)
