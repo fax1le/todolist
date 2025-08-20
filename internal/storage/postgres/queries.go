@@ -211,7 +211,7 @@ func SelectAllUsers() ([]models.DBuser, error) {
 		var user models.DBuser
 
 		if err := rows.Scan(
-			&user.ID,
+			&user.UID,
 			&user.Email,
 			&user.Password,
 			&user.Created_at,

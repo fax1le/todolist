@@ -98,7 +98,12 @@ func Login(w http.ResponseWriter, r *http.Request) {
 
 	session_uuid := session.MustGenerateUUID()
 
-	err = redis.StoreSession(session_uuid, user_id)
+	ip := session.GetIP(r)
+
+	ua := session.Truncate(r.UserAgent(), 200)
+
+	err = redis.StoreSession(session_uuid, user_id, ip, ua)
+
 	if err != nil {
 		log.Logger.Error("Failed to save refresh token", "user", user.Email, "err", err)
 		http.Error(w, "Login failed", http.StatusInternalServerError)
@@ -123,11 +128,11 @@ func Logout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	idStr, err := redis.GetDeleteSession(session_cookie.Value)
+	user_session_data, err := redis.GetDeleteSession(session_cookie.Value)
 	if err != nil {
 		log.Logger.Info("session_id not found", "err", err)
 	} else {
-		log.Logger.Info("User successfully logged out", "user", idStr)
+		log.Logger.Info("User successfully logged out", "user", user_session_data)
 	}
 
 	session.ClearSessionCookie(w)

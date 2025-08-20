@@ -6,7 +6,6 @@ import (
 	"todo/internal/http/context"
 	"context"
 	"net/http"
-	"strconv"
 	"time"
 )
 
@@ -64,24 +63,10 @@ func AuthMiddleWare(next http.Handler) http.Handler {
 			return
 		}
 
-		user_idStr, err := redis.GetUID(session_cookie.Value)
+		user_id, err := redis.GetUID(session_cookie.Value)
 
 		if err != nil {
-			log.Logger.Error("Failed to get from redis", "err", err)
-			w.WriteHeader(http.StatusInternalServerError)
-			return
-		}
-
-		if user_idStr == "" {
-			log.Logger.Error("Empty value of user_idStr")
-			w.WriteHeader(http.StatusUnauthorized)
-			return
-		}
-
-		user_id, err := strconv.Atoi(user_idStr)
-
-		if err != nil {
-			log.Logger.Error("Failed to convert", "err", err)
+			log.Logger.Error("Redis error", "err", err)
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
