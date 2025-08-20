@@ -33,8 +33,9 @@ type DBuser struct {
 }
 
 type Session struct {
-	UID int `json:"uid"`
+	UID int    `json:"uid"`
 	IAT int64  `json:"iat"`
+	EXP int64  `json:"exp"`
 	IP  string `json:"ip"`
 	UA  string `json:"ua"`
 }

@@ -1,12 +1,13 @@
 package middleware
 
 import (
-	"todo/internal/log"
-	"todo/internal/storage/redis"
-	"todo/internal/http/context"
 	"context"
 	"net/http"
 	"time"
+	"todo/internal/http/context"
+	"todo/internal/log"
+	"todo/internal/storage/redis"
+	"todo/internal/utils/session"
 )
 
 type wrappedWriter struct {
@@ -25,6 +26,7 @@ var PublicRoutes = map[string]string{
 	"/login":    "POST",
 }
 
+const renewThreshold = 15 * 60
 
 func LoggingMiddleWare(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -52,26 +54,33 @@ func AuthMiddleWare(next http.Handler) http.Handler {
 		session_cookie, err := r.Cookie("session_id")
 
 		if err != nil || session_cookie.Value == "" {
-			log.Logger.Error("session_id cookie missing", "err", err)
+			log.Logger.Error("Session_id cookie missing", "err", err)
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
 
-		if !redis.SessionExists(session_cookie.Value) {
-			log.Logger.Warn("session_id doesn't exist")
-			w.WriteHeader(http.StatusUnauthorized)
-			return
-		}
+		session_s, err := redis.GetSession(session_cookie.Value)
 
-		user_id, err := redis.GetUID(session_cookie.Value)
-
+		// improve error handling
 		if err != nil {
-			log.Logger.Error("Redis error", "err", err)
-			w.WriteHeader(http.StatusInternalServerError)
+			log.Logger.Warn("Session not found", "err", err)
+			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
 
-		ctx := context.WithValue(r.Context(), ctx.UserIDKey, user_id)
+		if session_s.EXP-time.Now().Unix() < renewThreshold {
+
+			err = redis.RenewSession(session_cookie.Value)
+			if err != nil {
+				log.Logger.Error("Redis failed to renew session", "err", err)
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+
+			session.SetSessionCookie(w, session_cookie.Value)
+		}
+
+		ctx := context.WithValue(r.Context(), ctx.UserIDKey, session_s.UID)
 
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
