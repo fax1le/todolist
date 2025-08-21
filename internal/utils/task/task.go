@@ -155,7 +155,14 @@ func GetUpdateQuery(user_id int, task_uuid string, update_task models.UpdateTask
 	if update_task.Category != nil {	
 		update_query += fmt.Sprintf("category = $%d, ", arg_ind)
 
-		args = append(args, update_task.Category)
+		args = append(args, *update_task.Category)
+		arg_ind++
+	}
+
+	if update_task.Completed != nil {
+		update_query += fmt.Sprintf("completed = $%d, ", arg_ind)
+
+		args = append(args, *update_task.Completed)
 		arg_ind++
 	}
 

@@ -20,10 +20,11 @@ type NewTask struct {
 }
 
 type UpdateTask struct {
-	Title    *string `json:"title"`
-	Due_date *string `json:"due"`
-	Priority *string `json:"priority"`
-	Category *string `json:"category"`
+	Title     *string `json:"title"`
+	Due_date  *string `json:"due"`
+	Priority  *string `json:"priority"`
+	Category  *string `json:"category"`
+	Completed *string `json:"completed"`
 }
 
 type User struct {
