@@ -1,13 +1,17 @@
 package validators
 
 import (
+	"encoding/json"
 	"errors"
+	"net/http"
+	"strings"
+	"time"
 	"todo/internal/models"
 	"todo/internal/storage/postgres"
 	"todo/internal/utils/task"
-	"strings"
-	"time"
 )
+
+const layout = "2006-01-02 15:04:05"
 
 func ValidateTask(user_id int, task models.NewTask) error {
 	if task.Title == "" || task.Category == "" {
@@ -22,7 +26,6 @@ func ValidateTask(user_id int, task models.NewTask) error {
 		return errors.New("unique task violation: task already exists")
 	}
 
-	layout := "2006-01-02 15:04:05"
 	date, err := time.Parse(layout, task.Due_date)
 
 	if err != nil {
@@ -139,4 +142,70 @@ func ValidatePassword(password string) error {
 	}
 
 	return nil
+}
+
+func GetValidateUpdateParams(user_id int, r *http.Request) (models.UpdateTask, error) {
+	// Title
+
+	var update_task models.UpdateTask
+
+	err := json.NewDecoder(r.Body).Decode(&update_task)
+
+	if err != nil {
+		return update_task, err
+	}
+
+	if update_task.Title != nil {
+		if *update_task.Title == "" {
+			return update_task, errors.New("update requirements not met, can't be empty")
+		}
+
+		if !task_utils.ValidString(*update_task.Title) {
+			return update_task, errors.New("update requirements not met, not valid string")
+		}
+
+		if db.TaskExists(user_id, *update_task.Title) {
+			return update_task, errors.New("unique task violation: task already exists")
+		}
+	}
+
+	// Due_date
+
+	if update_task.Due_date != nil {
+		date, err := time.Parse(layout, *update_task.Due_date)
+
+		if err != nil {
+			return update_task, errors.New("due time requirements not met, should be YYYY-MM-DD  HH:MM:SS")
+		}
+
+		if time.Since(date) >= 0 {
+			return update_task, errors.New("due time requirements not met, should be > Current time")
+		}
+	}
+
+	// Priority
+
+	if update_task.Priority != nil {
+		if *update_task.Priority == "" {
+			return update_task, errors.New("update requirements not met, can't be empty")
+		}
+
+		if *update_task.Priority != "low" && *update_task.Priority != "medium" && *update_task.Priority != "high" {
+			return update_task, errors.New("update requirements not met, priority must be in ('low', 'medium', 'high')")
+		}
+	}
+
+	// Category
+
+	if update_task.Category != nil {
+		if *update_task.Category == "" {
+			return update_task, errors.New("update requirements not met, can't be empty")
+		}
+
+		if !task_utils.ValidString(*update_task.Category) {
+			return update_task, errors.New("update requirements not met, not valid string")
+		}
+	}
+
+	return update_task, nil
 }

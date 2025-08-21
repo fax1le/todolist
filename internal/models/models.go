@@ -19,6 +19,13 @@ type NewTask struct {
 	Category string `json:"category"`
 }
 
+type UpdateTask struct {
+	Title    *string `json:"title"`
+	Due_date *string `json:"due"`
+	Priority *string `json:"priority"`
+	Category *string `json:"category"`
+}
+
 type User struct {
 	Email    string `json:"email"`
 	Password string `json:"password"`

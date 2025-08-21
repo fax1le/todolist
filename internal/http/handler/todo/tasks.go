@@ -130,7 +130,17 @@ func PatchTask(w http.ResponseWriter, r *http.Request) {
 
 	task_uuid := task_utils.GetTaskUUID(r.URL.Path)
 
-	err := db.UpdateTask(user_id, task_uuid)
+	update_task, err := validators.GetValidateUpdateParams(user_id, r)
+
+	if err != nil {
+		log.Logger.Error("validate: update params validation failed", "err", err)
+		http.Error(w, "Bad request", http.StatusBadRequest)
+		return
+	}
+
+	update_query, args := task_utils.GetUpdateQuery(user_id, task_uuid, update_task)
+
+	err = db.UpdateTask(update_query, args)
 
 	if err == sql.ErrNoRows {
 		log.Logger.Warn("postgres: task was not found", "err", err)

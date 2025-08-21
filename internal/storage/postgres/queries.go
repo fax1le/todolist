@@ -4,7 +4,6 @@ import (
 	"todo/internal/models"
 	"todo/internal/utils/password"
 	"todo/internal/utils/task"
-	"time"
 )
 
 func SelectTasks(query_params string, args []interface{}) ([]models.Task, error) {
@@ -77,18 +76,19 @@ func SelectTask(user_id int, task_uuid string) (models.Task, error) {
 	return task, nil
 }
 
-func UpdateTask(user_id int, task_uuid string) error {
-	// Change the logic
-	
+func UpdateTask(update_query string, args []any) error {
 	var i int
 
-	row := DB.QueryRow("SELECT 1 FROM tasks WHERE user_id = $1 AND completed = false AND id = $2", user_id, task_uuid)
+	user_id := args[len(args) - 2]
+	task_uuid := args[len(args) - 1]
+
+	row := DB.QueryRow("SELECT 1 FROM tasks WHERE user_id = $1 AND id = $2", user_id, task_uuid)  
 
 	if err := row.Scan(&i); err != nil {
 		return err
 	}
 
-	_, err := DB.Exec("UPDATE tasks SET completed = true, updated_at = $1 WHERE user_id = $2 AND id = $3", time.Now(), user_id, task_uuid)
+	_, err := DB.Exec(update_query, args...)
 
 	return err
 }

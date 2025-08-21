@@ -1,11 +1,12 @@
 package task_utils
 
 import (
-	"todo/internal/models"
+	"time"
 	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
+	"todo/internal/models"
 )
 
 func GetTaskUUID(path string) string {
@@ -123,4 +124,48 @@ func TrimSpace(task *models.NewTask) {
 	task.Due_date = strings.TrimSpace(task.Due_date)
 	task.Priority = strings.TrimSpace(task.Priority)
 	task.Category = strings.TrimSpace(task.Category)
+}
+
+func GetUpdateQuery(user_id int, task_uuid string, update_task models.UpdateTask) (string, []any) {
+	update_query := "UPDATE tasks SET "
+	args  := []any{}
+	arg_ind := 1
+
+	if update_task.Title != nil {
+		update_query += fmt.Sprintf("title = $%d, ", arg_ind) 
+
+		args = append(args, *update_task.Title)
+		arg_ind++
+	}
+
+	if update_task.Due_date != nil {
+		update_query += fmt.Sprintf("due_date = $%d, ", arg_ind)
+		
+		args = append(args, *update_task.Due_date)
+		arg_ind++
+	}
+
+	if update_task.Priority != nil {	
+		update_query += fmt.Sprintf("priority = $%d, ", arg_ind)
+
+		args = append(args, *update_task.Priority)
+		arg_ind++
+	}
+
+	if update_task.Category != nil {	
+		update_query += fmt.Sprintf("category = $%d, ", arg_ind)
+
+		args = append(args, update_task.Category)
+		arg_ind++
+	}
+
+	if update_query == "UPDATE tasks SET " {
+		update_query = ""
+	} else {
+		update_query += fmt.Sprintf("updated_at = $%d WHERE user_id = $%d AND id = $%d", arg_ind, arg_ind + 1, arg_ind + 2)
+		args = append(args, time.Now(), user_id, task_uuid)
+		arg_ind += 2
+	}
+
+	return update_query, args
 }
