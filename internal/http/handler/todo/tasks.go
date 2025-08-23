@@ -1,15 +1,15 @@
 package tasks
 
 import (
+	"database/sql"
+	"encoding/json"
+	"net/http"
+	"todo/internal/http/context"
 	"todo/internal/log"
 	"todo/internal/models"
 	"todo/internal/storage/postgres"
 	"todo/internal/utils/task"
 	"todo/internal/utils/validators"
-	"todo/internal/http/context"
-	"net/http"
-	"database/sql"
-	"encoding/json"
 )
 
 func GetTasks(w http.ResponseWriter, r *http.Request) {
@@ -28,8 +28,8 @@ func GetTasks(w http.ResponseWriter, r *http.Request) {
 	query_params, args, err := task_utils.GetDynamicQuery(user_id, r)
 
 	if err != nil {
-		log.Logger.Error("postgres: dynamic query error", "err", err)
-		http.Error(w, "Server error", http.StatusInternalServerError)
+		log.Logger.Error("dynamic query error", "err", err)
+		http.Error(w, "Bad request", http.StatusBadRequest)
 		return
 	}
 

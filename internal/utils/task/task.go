@@ -1,12 +1,12 @@
 package task_utils
 
 import (
-	"time"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
-	"errors"
+	"time"
 	"todo/internal/models"
 )
 
@@ -28,13 +28,20 @@ func ValidString(s string) bool {
 }
 
 var allowedOrderBy = map[string]string{
-	"title": "title",
-	"priority": "priority",
-	"completed": "completed",
-	"due_date": "due_date",
-	"category": "category",
-	"created_at": "created_at",
-	"updated_at": "updated_at",
+	"title":           "title",
+	"title desc":      "title desc",
+	"priority":        "priority",
+	"priority desc":   "priority desc",
+	"completed":       "completed",
+	"completed desc":  "completed desc",
+	"due_date":        "due_date",
+	"due_date desc ":  "due_date desc",
+	"category":        "category",
+	"category desc":   "category desc",
+	"created_at":      "created_at",
+	"created_at desc": "created_at desc",
+	"updated_at":      "updated_at",
+	"updated_at desc": "updated_at desc",
 }
 
 func GetDynamicQuery(user_id int, r *http.Request) (string, []interface{}, error) {
@@ -49,10 +56,18 @@ func GetDynamicQuery(user_id int, r *http.Request) (string, []interface{}, error
 	query_params := GetQueryParams(r)
 
 	if query_params["completed"] != "" {
+		param := query_params["completed"]
+		param = strings.ToLower(param)
+		param = strings.TrimSpace(param)
+
+		if param != "false" && param != "true" {
+			return "", args, errors.New("completed param not a bool value")
+		}
+
 		completed_str := fmt.Sprintf(" completed = $%d", arg_ind)
 		condition_query += completed_str + " AND"
 
-		completed_bool, err := strconv.ParseBool(query_params["completed"])
+		completed_bool, err := strconv.ParseBool(param)
 
 		if err != nil {
 			return "", args, err
@@ -62,51 +77,77 @@ func GetDynamicQuery(user_id int, r *http.Request) (string, []interface{}, error
 	}
 
 	if query_params["category"] != "" {
+		param := query_params["category"]
+		param = strings.TrimSpace(param)
+
 		category_str := fmt.Sprintf(" category = $%d", arg_ind)
 		condition_query += category_str + " AND"
-		args = append(args, query_params["category"])
+		args = append(args, param)
 		arg_ind++
 	}
 
 	if query_params["due"] != "" {
+		param := query_params["due"]
+		param = strings.TrimSpace(param)
+
 		due_str := fmt.Sprintf(" due_date <= $%d", arg_ind)
 		condition_query += due_str + " AND"
-		args = append(args, query_params["due"])
+		args = append(args, param)
 		arg_ind++
 	}
 
 	if query_params["search"] != "" {
+		param := query_params["search"]
+		param = strings.TrimSpace(param)
+
 		search_str := fmt.Sprintf(" title = $%d", arg_ind)
 		condition_query += search_str + " AND"
-		args = append(args, query_params["search"])
+		args = append(args, param)
 		arg_ind++
 	}
 
 	if query_params["priority"] != "" {
+		param := query_params["priority"]
+		param = strings.ToLower(param)
+		param = strings.TrimSpace(param)
+
+		if param != "low" && param != "medium" && param != "high" {
+			return "", args, errors.New("priority param not in ('low', 'medium', 'high')") 
+		}
+
 		priority_str := fmt.Sprintf(" priority = $%d", arg_ind)
 		condition_query += priority_str + " AND"
-		args = append(args, query_params["priority"])
+		args = append(args, param)
 		arg_ind++
 	}
 
 	condition_query, _ = strings.CutSuffix(condition_query, " AND")
 
 	if query_params["sort"] != "" {
-		sort_param := query_params["sort"]
-		
-		if _, ok := allowedOrderBy[sort_param]; !ok {
-			return "", args, errors.New("invalid sort query param")
+		param := query_params["sort"]
+		param = strings.ToLower(param)
+		param = strings.TrimSpace(param)
+
+		if _, ok := allowedOrderBy[param]; !ok {
+			return "", args, errors.New("sort param not allowed")
 		}
 
-		sort_str := fmt.Sprintf(" ORDER BY %s", query_params["sort"])
+		sort_str := fmt.Sprintf(" ORDER BY %s", param)
 		operation_query += sort_str
 	}
 
 	if query_params["limit"] != "" {
-		limit, err := strconv.Atoi(query_params["limit"])
+		param := query_params["limit"]
+		param = strings.TrimSpace(param)
+
+		limit, err := strconv.Atoi(param)
 
 		if err != nil {
-			return "", args, err
+			return "", args, errors.New("limit param not a number")
+		}
+
+		if limit < 0 {
+			return "", args, errors.New("limit must be positive")
 		}
 
 		limit_str := fmt.Sprintf(" LIMIT $%d", arg_ind)
@@ -145,11 +186,11 @@ func TrimSpace(task *models.NewTask) {
 
 func GetUpdateQuery(user_id int, task_uuid string, update_task models.UpdateTask) (string, []any) {
 	update_query := "UPDATE tasks SET "
-	args  := []any{}
+	args := []any{}
 	arg_ind := 1
 
 	if update_task.Title != nil {
-		update_query += fmt.Sprintf("title = $%d, ", arg_ind) 
+		update_query += fmt.Sprintf("title = $%d, ", arg_ind)
 
 		args = append(args, *update_task.Title)
 		arg_ind++
@@ -157,19 +198,19 @@ func GetUpdateQuery(user_id int, task_uuid string, update_task models.UpdateTask
 
 	if update_task.Due_date != nil {
 		update_query += fmt.Sprintf("due_date = $%d, ", arg_ind)
-		
+
 		args = append(args, *update_task.Due_date)
 		arg_ind++
 	}
 
-	if update_task.Priority != nil {	
+	if update_task.Priority != nil {
 		update_query += fmt.Sprintf("priority = $%d, ", arg_ind)
 
 		args = append(args, *update_task.Priority)
 		arg_ind++
 	}
 
-	if update_task.Category != nil {	
+	if update_task.Category != nil {
 		update_query += fmt.Sprintf("category = $%d, ", arg_ind)
 
 		args = append(args, *update_task.Category)
@@ -186,7 +227,7 @@ func GetUpdateQuery(user_id int, task_uuid string, update_task models.UpdateTask
 	if update_query == "UPDATE tasks SET " {
 		update_query = ""
 	} else {
-		update_query += fmt.Sprintf("updated_at = $%d WHERE user_id = $%d AND id = $%d", arg_ind, arg_ind + 1, arg_ind + 2)
+		update_query += fmt.Sprintf("updated_at = $%d WHERE user_id = $%d AND id = $%d", arg_ind, arg_ind+1, arg_ind+2)
 		args = append(args, time.Now(), user_id, task_uuid)
 		arg_ind += 2
 	}
