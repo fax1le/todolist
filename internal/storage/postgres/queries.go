@@ -145,23 +145,23 @@ func CreateUser(user models.User) error {
 	return nil
 }
 
-func MustGetPassword(email string) string {
+func GetPassword(email string) (string, error) {
 	var hashed_password string
 
 	row := DB.QueryRow("SELECT hashed_password FROM users WHERE email=$1", email)
-	row.Scan(&hashed_password)
+	err := row.Scan(&hashed_password)
 
-	return hashed_password
+	return hashed_password, err
 }
 
-func MustGetUserID(email string) int {
+func GetUserID(email string) (int, error) {
 	var id int
 
 	row := DB.QueryRow("SELECT id FROM users WHERE email=$1", email)
 
-	row.Scan(&id)
+	err := row.Scan(&id)
 
-	return id
+	return id, err
 }
 
 func SelectAllTasks() ([]models.Task, error) {

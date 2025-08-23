@@ -24,7 +24,7 @@ type UpdateTask struct {
 	Due_date  *string `json:"due"`
 	Priority  *string `json:"priority"`
 	Category  *string `json:"category"`
-	Completed *string `json:"completed"`
+	Completed *bool   `json:"completed"`
 }
 
 type User struct {

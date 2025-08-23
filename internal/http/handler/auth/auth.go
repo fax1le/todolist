@@ -1,6 +1,9 @@
 package auth
 
 import (
+	"encoding/json"
+	"net/http"
+	"time"
 	"todo/internal/log"
 	"todo/internal/models"
 	"todo/internal/storage/postgres"
@@ -8,9 +11,6 @@ import (
 	"todo/internal/utils/password"
 	"todo/internal/utils/session"
 	"todo/internal/utils/validators"
-	"net/http"
-	"encoding/json"
-	"time"
 )
 
 func Register(w http.ResponseWriter, r *http.Request) {
@@ -80,13 +80,18 @@ func Login(w http.ResponseWriter, r *http.Request) {
 
 	if !db.UserExistsByEmail(user.Email) {
 		log.Logger.Warn("User does not exist", "user", user.Email)
-
 		time.Sleep(time.Second)
 		http.Error(w, "Invalid password", http.StatusUnauthorized)
 		return
 	}
 
-	hashed_password := db.MustGetPassword(user.Email)
+	hashed_password, err := db.GetPassword(user.Email)
+
+	if err != nil {
+		log.Logger.Error("Get password error", "err", err)
+		http.Error(w, "Server error", http.StatusInternalServerError)
+		return
+	}
 
 	if !password.IsCorrectPassword([]byte(hashed_password), []byte(user.Password)) {
 		log.Logger.Warn("Invalid password for user", "user", user.Email)
@@ -94,7 +99,13 @@ func Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user_id := db.MustGetUserID(user.Email)
+	user_id, err := db.GetUserID(user.Email)
+
+	if err != nil {
+		log.Logger.Error("Get user_id error", "err", err)
+		http.Error(w, "Server error", http.StatusInternalServerError)
+		return
+	}
 
 	session_uuid := session.MustGenerateUUID()
 

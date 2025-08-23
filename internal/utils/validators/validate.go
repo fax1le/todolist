@@ -207,17 +207,5 @@ func GetValidateUpdateParams(user_id int, r *http.Request) (models.UpdateTask, e
 		}
 	}
 
-	// Completed
-
-	if update_task.Completed != nil {
-		if *update_task.Completed == "" {
-			return update_task, errors.New("update requirements not met, can't be empty")
-		}
-
-		if *update_task.Completed != "true" && *update_task.Completed != "false" {
-			return update_task, errors.New("update requirements not met, must be true or false")
-		}
-	}
-
 	return update_task, nil
 }
