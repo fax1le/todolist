@@ -41,8 +41,8 @@ func GetTasks(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	json.NewEncoder(w).Encode(tasks)
 	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(tasks)
 }
 
 func PostTask(w http.ResponseWriter, r *http.Request) {
@@ -111,8 +111,8 @@ func GetTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	json.NewEncoder(w).Encode(task)
 	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(task)
 }
 
 func PatchTask(w http.ResponseWriter, r *http.Request) {

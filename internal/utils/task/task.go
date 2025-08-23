@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"errors"
 	"todo/internal/models"
 )
 
@@ -24,6 +25,16 @@ func ValidString(s string) bool {
 	}
 
 	return true
+}
+
+var allowedOrderBy = map[string]string{
+	"title": "title",
+	"priority": "priority",
+	"completed": "completed",
+	"due_date": "due_date",
+	"category": "category",
+	"created_at": "created_at",
+	"updated_at": "updated_at",
 }
 
 func GetDynamicQuery(user_id int, r *http.Request) (string, []interface{}, error) {
@@ -81,6 +92,12 @@ func GetDynamicQuery(user_id int, r *http.Request) (string, []interface{}, error
 	condition_query, _ = strings.CutSuffix(condition_query, " AND")
 
 	if query_params["sort"] != "" {
+		sort_param := query_params["sort"]
+		
+		if _, ok := allowedOrderBy[sort_param]; !ok {
+			return "", args, errors.New("invalid sort query param")
+		}
+
 		sort_str := fmt.Sprintf(" ORDER BY %s", query_params["sort"])
 		operation_query += sort_str
 	}
