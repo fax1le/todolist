@@ -22,7 +22,7 @@ type Config struct {
 
 func Load() Config {
 	return Config{
-		Addr:          getStringEnv("ADDR"),
+		Addr:          ":" + getStringEnv("ADDR"),
 		PGHost:        getStringEnv("PG_HOST"),
 		PGUser:        getStringEnv("PG_USER"),
 		PGPassword:    getStringEnv("PG_PASSWORD"),
