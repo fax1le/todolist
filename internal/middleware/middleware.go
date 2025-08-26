@@ -2,12 +2,14 @@ package middleware
 
 import (
 	"context"
+	"log/slog"
 	"net/http"
 	"time"
 	"todo/internal/http/context"
-	"todo/internal/log"
-	"todo/internal/storage/redis"
+	redis_ "todo/internal/storage/redis"
 	"todo/internal/utils/session"
+
+	"github.com/redis/go-redis/v9"
 )
 
 type wrappedWriter struct {
@@ -28,10 +30,10 @@ var PublicRoutes = map[string]string{
 
 const renewThreshold = 15 * 60
 
-func LoggingMiddleWare(next http.Handler) http.Handler {
+func LoggingMiddleWare(next http.Handler, logger *slog.Logger) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		req_start := time.Now()
-		log.Logger.Info("request", "addr", r.RemoteAddr, "path", r.URL, "method", r.Method)
+		logger.Info("request", "addr", r.RemoteAddr, "path", r.URL, "method", r.Method)
 
 		wrapped := &wrappedWriter{
 			ResponseWriter: w,
@@ -40,11 +42,11 @@ func LoggingMiddleWare(next http.Handler) http.Handler {
 
 		next.ServeHTTP(wrapped, r)
 
-		log.Logger.Info("request", "response", wrapped.statusCode, "execution time", time.Since(req_start))
+		logger.Info("request", "response", wrapped.statusCode, "execution time", time.Since(req_start))
 	})
 }
 
-func AuthMiddleWare(next http.Handler) http.Handler {
+func AuthMiddleWare(next http.Handler, logger *slog.Logger, cache *redis.Client) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if val, ok := PublicRoutes[r.URL.Path]; ok && val == r.Method {
 			next.ServeHTTP(w, r)
@@ -54,25 +56,24 @@ func AuthMiddleWare(next http.Handler) http.Handler {
 		session_cookie, err := r.Cookie("session_id")
 
 		if err != nil || session_cookie.Value == "" {
-			log.Logger.Error("Session_id cookie missing", "err", err)
+			logger.Error("Session_id cookie missing", "err", err)
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
 
-		session_s, err := redis.GetSession(session_cookie.Value)
+		session_s, err := redis_.GetSession(cache, session_cookie.Value)
 
-		// improve error handling
 		if err != nil {
-			log.Logger.Warn("Session not found", "err", err)
+			logger.Warn("Session not found", "err", err)
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
 
 		if session_s.EXP-time.Now().Unix() < renewThreshold {
 
-			err = redis.RenewSession(session_cookie.Value)
+			err = redis_.RenewSession(cache, session_cookie.Value)
 			if err != nil {
-				log.Logger.Error("Redis failed to renew session", "err", err)
+				logger.Error("Redis failed to renew session", "err", err)
 				w.WriteHeader(http.StatusInternalServerError)
 				return
 			}

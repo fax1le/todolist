@@ -1,62 +1,71 @@
 package auth
 
 import (
+	"database/sql"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"time"
-	"todo/internal/log"
 	"todo/internal/models"
 	"todo/internal/storage/postgres"
-	"todo/internal/storage/redis"
+	redis_ "todo/internal/storage/redis"
 	"todo/internal/utils/password"
 	"todo/internal/utils/session"
 	"todo/internal/utils/validators"
+
+	"github.com/redis/go-redis/v9"
 )
 
-func Register(w http.ResponseWriter, r *http.Request) {
+type AuthHandler struct {
+	DB     *sql.DB
+	Cache  *redis.Client
+	Logger *slog.Logger
+}
+
+func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 	defer r.Body.Close()
 
 	var user models.User
 
 	err := json.NewDecoder(r.Body).Decode(&user)
 	if err != nil {
-		log.Logger.Error("Register error", "err", err)
+		h.Logger.Error("Register error", "err", err)
 		http.Error(w, "Bad request", http.StatusBadRequest)
 		return
 	}
 
 	err = validators.ValidateEmail(user.Email)
 	if err != nil {
-		log.Logger.Error("Email format error", "email", user.Email, "err", err)
+		h.Logger.Error("Email format error", "email", user.Email, "err", err)
 		http.Error(w, "Invalid email format", http.StatusBadRequest)
 		return
 	}
 
 	err = validators.ValidatePassword(user.Password)
 	if err != nil {
-		log.Logger.Error("Password format error", "password", user.Password, "err", err)
+		h.Logger.Error("Password format error", "err", err)
 		http.Error(w, "Invalid password format", http.StatusBadRequest)
 		return
 	}
 
-	if db.UserExistsByEmail(user.Email) {
-		log.Logger.Warn("User with provided email exists", "user", user.Email)
+	if postgres.UserExistsByEmail(h.DB, user.Email) {
+		h.Logger.Warn("User with provided email exists", "user", user.Email)
 		http.Error(w, "User with provided email exists", http.StatusConflict)
 		return
 	}
 
-	err = db.CreateUser(user)
+	err = postgres.CreateUser(h.DB, user)
 	if err != nil {
-		log.Logger.Error("User creation error", "user", user.Email, "err", err)
+		h.Logger.Error("User creation error", "user", user.Email, "err", err)
 		http.Error(w, "Failed to register", http.StatusInternalServerError)
 		return
 	}
 
-	log.Logger.Info("User created: ", "user", user.Email)
+	h.Logger.Info("User created: ", "user", user.Email)
 	w.WriteHeader(http.StatusCreated)
 }
 
-func Login(w http.ResponseWriter, r *http.Request) {
+func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
 
@@ -66,43 +75,41 @@ func Login(w http.ResponseWriter, r *http.Request) {
 
 	err := json.NewDecoder(r.Body).Decode(&user)
 	if err != nil {
-		log.Logger.Error("Login error", "err", err)
+		h.Logger.Error("Login error", "err", err)
 		http.Error(w, "Bad Request", http.StatusBadRequest)
 		return
 	}
 
 	err = validators.ValidateEmail(user.Email)
 	if err != nil {
-		log.Logger.Error("Email format error", "email", user.Email, "err", err)
+		h.Logger.Error("Email format error", "email", user.Email, "err", err)
 		http.Error(w, "Invalid email format", http.StatusBadRequest)
 		return
 	}
 
-	if !db.UserExistsByEmail(user.Email) {
-		log.Logger.Warn("User does not exist", "user", user.Email)
+	if !postgres.UserExistsByEmail(h.DB, user.Email) {
+		h.Logger.Warn("User does not exist", "user", user.Email)
 		time.Sleep(time.Second)
 		http.Error(w, "Invalid password", http.StatusUnauthorized)
 		return
 	}
 
-	hashed_password, err := db.GetPassword(user.Email)
-
+	hashed_password, err := postgres.GetPassword(h.DB, user.Email)
 	if err != nil {
-		log.Logger.Error("Get password error", "err", err)
+		h.Logger.Error("Get password error", "err", err)
 		http.Error(w, "Server error", http.StatusInternalServerError)
 		return
 	}
 
 	if !password.IsCorrectPassword([]byte(hashed_password), []byte(user.Password)) {
-		log.Logger.Warn("Invalid password for user", "user", user.Email)
+		h.Logger.Warn("Invalid password for user", "user", user.Email)
 		http.Error(w, "Invalid password", http.StatusUnauthorized)
 		return
 	}
 
-	user_id, err := db.GetUserID(user.Email)
-
+	user_id, err := postgres.GetUserID(h.DB, user.Email)
 	if err != nil {
-		log.Logger.Error("Get user_id error", "err", err)
+		h.Logger.Error("Get user_id error", "err", err)
 		http.Error(w, "Server error", http.StatusInternalServerError)
 		return
 	}
@@ -113,41 +120,40 @@ func Login(w http.ResponseWriter, r *http.Request) {
 
 	ua := session.Truncate(r.UserAgent(), 200)
 
-	err = redis.StoreSession(session_uuid, user_id, ip, ua)
-
+	err = redis_.StoreSession(h.Cache, session_uuid, user_id, ip, ua)
 	if err != nil {
-		log.Logger.Error("Failed to save refresh token", "user", user.Email, "err", err)
+		h.Logger.Error("Failed to save refresh token", "user", user.Email, "err", err)
 		http.Error(w, "Login failed", http.StatusInternalServerError)
 		return
 	}
 
 	session.SetSessionCookie(w, session_uuid)
 
-	log.Logger.Info("Logged in", "user", user.Email)
+	h.Logger.Info("Logged in", "user", user.Email)
 	w.WriteHeader(http.StatusOK)
 }
 
-func Logout(w http.ResponseWriter, r *http.Request) {
+func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Vary", "Cookie")
 
 	session_cookie, err := r.Cookie("session_id")
 	if err != nil || session_cookie.Value == "" {
-		log.Logger.Error("session_id cookie error", "err", err)
+		h.Logger.Error("session_id cookie error", "err", err)
 		session.ClearSessionCookie(w)
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
 
-	user_session_data, err := redis.GetDeleteSession(session_cookie.Value)
+	user_session_data, err := redis_.GetDeleteSession(h.Cache, session_cookie.Value)
 	if err != nil {
-		log.Logger.Info("session_id not found", "err", err)
+		h.Logger.Info("session_id not found", "err", err)
 	} else {
-		log.Logger.Info("User successfully logged out", "user", user_session_data)
+		h.Logger.Info("User successfully logged out", "user", user_session_data)
 	}
 
 	session.ClearSessionCookie(w)
 
-	log.Logger.Info("User logged out")
+	h.Logger.Info("User logged out")
 	w.WriteHeader(http.StatusNoContent)
 }

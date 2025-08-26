@@ -1,0 +1,952 @@
+diff --git a/cmd/app/main.go b/cmd/app/main.go
+deleted file mode 100644
+index 25c4f88..0000000
+--- a/cmd/app/main.go
++++ /dev/null
+@@ -1,24 +0,0 @@
+-package main
+-
+-import (
+-	"todo/internal/log"
+-	"todo/internal/middleware"
+-	"todo/internal/http/handler"
+-	"todo/internal/storage/postgres"
+-	"todo/internal/storage/redis"
+-	"net/http"
+-	"os"
+-)
+-
+-func main() {
+-	port := os.Getenv("PORT")
+-
+-	db.StartDB()
+-	redis.StartRedis()
+-
+-	router := handler.BaseHandler{}
+-	middleware := middleware.LoggingMiddleWare(middleware.AuthMiddleWare(router))
+-
+-	log.Logger.Info("Listening on port " + port)
+-	http.ListenAndServe(port, middleware)
+-}
+diff --git a/internal/http/handler/auth/auth.go b/internal/http/handler/auth/auth.go
+deleted file mode 100644
+index 2caa0d8..0000000
+--- a/internal/http/handler/auth/auth.go
++++ /dev/null
+@@ -1,153 +0,0 @@
+-package auth
+-
+-import (
+-	"encoding/json"
+-	"net/http"
+-	"time"
+-	"todo/internal/log"
+-	"todo/internal/models"
+-	"todo/internal/storage/postgres"
+-	"todo/internal/storage/redis"
+-	"todo/internal/utils/password"
+-	"todo/internal/utils/session"
+-	"todo/internal/utils/validators"
+-)
+-
+-func Register(w http.ResponseWriter, r *http.Request) {
+-	defer r.Body.Close()
+-
+-	var user models.User
+-
+-	err := json.NewDecoder(r.Body).Decode(&user)
+-	if err != nil {
+-		log.Logger.Error("Register error", "err", err)
+-		http.Error(w, "Bad request", http.StatusBadRequest)
+-		return
+-	}
+-
+-	err = validators.ValidateEmail(user.Email)
+-	if err != nil {
+-		log.Logger.Error("Email format error", "email", user.Email, "err", err)
+-		http.Error(w, "Invalid email format", http.StatusBadRequest)
+-		return
+-	}
+-
+-	err = validators.ValidatePassword(user.Password)
+-	if err != nil {
+-		log.Logger.Error("Password format error", "password", user.Password, "err", err)
+-		http.Error(w, "Invalid password format", http.StatusBadRequest)
+-		return
+-	}
+-
+-	if db.UserExistsByEmail(user.Email) {
+-		log.Logger.Warn("User with provided email exists", "user", user.Email)
+-		http.Error(w, "User with provided email exists", http.StatusConflict)
+-		return
+-	}
+-
+-	err = db.CreateUser(user)
+-	if err != nil {
+-		log.Logger.Error("User creation error", "user", user.Email, "err", err)
+-		http.Error(w, "Failed to register", http.StatusInternalServerError)
+-		return
+-	}
+-
+-	log.Logger.Info("User created: ", "user", user.Email)
+-	w.WriteHeader(http.StatusCreated)
+-}
+-
+-func Login(w http.ResponseWriter, r *http.Request) {
+-	w.Header().Set("Content-Type", "application/json")
+-	w.Header().Set("Cache-Control", "no-store")
+-
+-	defer r.Body.Close()
+-
+-	var user models.User
+-
+-	err := json.NewDecoder(r.Body).Decode(&user)
+-	if err != nil {
+-		log.Logger.Error("Login error", "err", err)
+-		http.Error(w, "Bad Request", http.StatusBadRequest)
+-		return
+-	}
+-
+-	err = validators.ValidateEmail(user.Email)
+-	if err != nil {
+-		log.Logger.Error("Email format error", "email", user.Email, "err", err)
+-		http.Error(w, "Invalid email format", http.StatusBadRequest)
+-		return
+-	}
+-
+-	if !db.UserExistsByEmail(user.Email) {
+-		log.Logger.Warn("User does not exist", "user", user.Email)
+-		time.Sleep(time.Second)
+-		http.Error(w, "Invalid password", http.StatusUnauthorized)
+-		return
+-	}
+-
+-	hashed_password, err := db.GetPassword(user.Email)
+-
+-	if err != nil {
+-		log.Logger.Error("Get password error", "err", err)
+-		http.Error(w, "Server error", http.StatusInternalServerError)
+-		return
+-	}
+-
+-	if !password.IsCorrectPassword([]byte(hashed_password), []byte(user.Password)) {
+-		log.Logger.Warn("Invalid password for user", "user", user.Email)
+-		http.Error(w, "Invalid password", http.StatusUnauthorized)
+-		return
+-	}
+-
+-	user_id, err := db.GetUserID(user.Email)
+-
+-	if err != nil {
+-		log.Logger.Error("Get user_id error", "err", err)
+-		http.Error(w, "Server error", http.StatusInternalServerError)
+-		return
+-	}
+-
+-	session_uuid := session.MustGenerateUUID()
+-
+-	ip := session.GetIP(r)
+-
+-	ua := session.Truncate(r.UserAgent(), 200)
+-
+-	err = redis.StoreSession(session_uuid, user_id, ip, ua)
+-
+-	if err != nil {
+-		log.Logger.Error("Failed to save refresh token", "user", user.Email, "err", err)
+-		http.Error(w, "Login failed", http.StatusInternalServerError)
+-		return
+-	}
+-
+-	session.SetSessionCookie(w, session_uuid)
+-
+-	log.Logger.Info("Logged in", "user", user.Email)
+-	w.WriteHeader(http.StatusOK)
+-}
+-
+-func Logout(w http.ResponseWriter, r *http.Request) {
+-	w.Header().Set("Cache-Control", "no-store")
+-	w.Header().Set("Vary", "Cookie")
+-
+-	session_cookie, err := r.Cookie("session_id")
+-	if err != nil || session_cookie.Value == "" {
+-		log.Logger.Error("session_id cookie error", "err", err)
+-		session.ClearSessionCookie(w)
+-		w.WriteHeader(http.StatusNoContent)
+-		return
+-	}
+-
+-	user_session_data, err := redis.GetDeleteSession(session_cookie.Value)
+-	if err != nil {
+-		log.Logger.Info("session_id not found", "err", err)
+-	} else {
+-		log.Logger.Info("User successfully logged out", "user", user_session_data)
+-	}
+-
+-	session.ClearSessionCookie(w)
+-
+-	log.Logger.Info("User logged out")
+-	w.WriteHeader(http.StatusNoContent)
+-}
+diff --git a/internal/http/handler/base.go b/internal/http/handler/base.go
+deleted file mode 100644
+index 909cf7f..0000000
+--- a/internal/http/handler/base.go
++++ /dev/null
+@@ -1,45 +0,0 @@
+-package handler
+-
+-import (
+-	"todo/internal/http/handler/auth"
+-	"todo/internal/http/handler/todo"
+-	"net/http"
+-	"strings"
+-)
+-
+-type BaseHandler struct{}
+-
+-func (h BaseHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+-	switch {
+-	case r.URL.Path == "/health" && r.Method == "GET":
+-		func(w http.ResponseWriter, r *http.Request) {
+-			w.Write([]byte("OK"))
+-		}(w, r)
+-	case r.URL.Path == "/tasks" && r.Method == "GET":
+-			tasks.GetTasks(w, r)
+-	
+-	case r.URL.Path == "/tasks" && r.Method == "POST":
+-			tasks.PostTask(w, r)
+-		
+-	case strings.HasPrefix(r.URL.Path, "/tasks/") && r.Method == "GET":
+-			tasks.GetTask(w, r)
+-		
+-	case strings.HasPrefix(r.URL.Path, "/tasks/") && r.Method == "PATCH":
+-			tasks.PatchTask(w, r)
+-			
+-	case strings.HasPrefix(r.URL.Path, "/tasks/") && r.Method == "DELETE":
+-			tasks.DeleteTask(w, r)
+-		
+-	case r.URL.Path == "/register" && r.Method == "POST":
+-			auth.Register(w, r)
+-	
+-	case r.URL.Path == "/login" && r.Method == "POST":
+-			auth.Login(w, r)
+-
+-	case r.URL.Path == "/logout" && r.Method == "POST":
+-			auth.Logout(w, r)
+-
+-	default:
+-		http.NotFound(w, r)
+-	}
+-}
+diff --git a/internal/http/handler/todo/tasks.go b/internal/http/handler/todo/tasks.go
+deleted file mode 100644
+index 6df31ef..0000000
+--- a/internal/http/handler/todo/tasks.go
++++ /dev/null
+@@ -1,192 +0,0 @@
+-package tasks
+-
+-import (
+-	"database/sql"
+-	"encoding/json"
+-	"net/http"
+-	"todo/internal/http/context"
+-	"todo/internal/log"
+-	"todo/internal/models"
+-	"todo/internal/storage/postgres"
+-	"todo/internal/utils/task"
+-	"todo/internal/utils/validators"
+-)
+-
+-func GetTasks(w http.ResponseWriter, r *http.Request) {
+-	w.Header().Set("Content-Type", "application/json")
+-
+-	val := r.Context().Value(ctx.UserIDKey)
+-
+-	user_id, ok := val.(int)
+-
+-	if !ok {
+-		log.Logger.Error("request: failed to get context key value")
+-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+-		return
+-	}
+-
+-	query_params, args, err := task_utils.GetDynamicQuery(user_id, r)
+-
+-	if err != nil {
+-		log.Logger.Error("dynamic query error", "err", err)
+-		http.Error(w, "Bad request", http.StatusBadRequest)
+-		return
+-	}
+-
+-	tasks, err := db.SelectTasks(query_params, args)
+-
+-	if err != nil {
+-		log.Logger.Info("postgres: select tasks error", "err", err)
+-		http.Error(w, "Server error", http.StatusInternalServerError)
+-		return
+-	}
+-
+-	w.WriteHeader(http.StatusOK)
+-	json.NewEncoder(w).Encode(tasks)
+-}
+-
+-func PostTask(w http.ResponseWriter, r *http.Request) {
+-	defer r.Body.Close()
+-
+-	val := r.Context().Value(ctx.UserIDKey)
+-
+-	user_id, ok := val.(int)
+-
+-	if !ok {
+-		log.Logger.Error("request: failed to get context key value")
+-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+-		return
+-	}
+-
+-	var new_task models.NewTask
+-
+-	err := json.NewDecoder(r.Body).Decode(&new_task)
+-
+-	if err != nil {
+-		log.Logger.Error("request: parsing error", "err", err)
+-		http.Error(w, "Bad request", http.StatusBadRequest)
+-		return
+-	}
+-
+-	err = validators.ValidateTask(user_id, new_task)
+-
+-	if err != nil {
+-		log.Logger.Error("validate: task validation error", "err", err)
+-		http.Error(w, "Bad request", http.StatusBadRequest)
+-		return
+-	}
+-
+-	err = db.InsertTask(user_id, new_task)
+-
+-	if err != nil {
+-		log.Logger.Error("postgres: insertion error", "err", err)
+-		http.Error(w, "Server error", http.StatusInternalServerError)
+-		return
+-	}
+-
+-	log.Logger.Info("Task was created", "task", new_task.Title)
+-	w.WriteHeader(http.StatusCreated)
+-}
+-
+-func GetTask(w http.ResponseWriter, r *http.Request) {
+-	w.Header().Set("Content-Type", "application/json")
+-
+-	val := r.Context().Value(ctx.UserIDKey)
+-
+-	user_id, ok := val.(int)
+-
+-	if !ok {
+-		log.Logger.Error("request: failed to get context key value")
+-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+-		return
+-	}
+-
+-	task_uuid := task_utils.GetTaskUUID(r.URL.Path)
+-
+-	task, err := db.SelectTask(user_id, task_uuid)
+-
+-	if err != nil {
+-		log.Logger.Warn("postgres: task was not found", "err", err)
+-		http.Error(w, "Not found", http.StatusNotFound)
+-		return
+-	}
+-
+-	w.WriteHeader(http.StatusOK)
+-	json.NewEncoder(w).Encode(task)
+-}
+-
+-func PatchTask(w http.ResponseWriter, r *http.Request) {
+-	defer r.Body.Close()
+-
+-	val := r.Context().Value(ctx.UserIDKey)
+-
+-	user_id, ok := val.(int)
+-
+-	if !ok {
+-		log.Logger.Error("request: failed to get context key value")
+-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+-		return
+-	}
+-
+-	task_uuid := task_utils.GetTaskUUID(r.URL.Path)
+-
+-	update_task, err := validators.GetValidateUpdateParams(user_id, r)
+-
+-	if err != nil {
+-		log.Logger.Error("validate: update params validation failed", "err", err)
+-		http.Error(w, "Bad request", http.StatusBadRequest)
+-		return
+-	}
+-
+-	update_query, args := task_utils.GetUpdateQuery(user_id, task_uuid, update_task)
+-
+-	err = db.UpdateTask(update_query, args)
+-
+-	if err == sql.ErrNoRows {
+-		log.Logger.Warn("postgres: task was not found", "err", err)
+-		http.Error(w, "Not found", http.StatusNotFound)
+-		return
+-	}
+-
+-	if err != nil {
+-		log.Logger.Error("postgres: update task error", "err", err)
+-		http.Error(w, "Server error", http.StatusInternalServerError)
+-		return
+-	}
+-
+-	log.Logger.Info("Task was updated")
+-	w.WriteHeader(http.StatusOK)
+-}
+-
+-func DeleteTask(w http.ResponseWriter, r *http.Request) {
+-	defer r.Body.Close()
+-
+-	val := r.Context().Value(ctx.UserIDKey)
+-
+-	user_id, ok := val.(int)
+-
+-	if !ok {
+-		log.Logger.Error("request: failed to get context key value")
+-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+-		return
+-	}
+-
+-	task_uuid := task_utils.GetTaskUUID(r.URL.Path)
+-
+-	rows_affected, err := db.RemoveTask(user_id, task_uuid)
+-
+-	if rows_affected == 0 {
+-		log.Logger.Warn("postgres: task was not found", "err", "psql: 0 rows affected")
+-		http.Error(w, "Not found", http.StatusNotFound)
+-		return
+-	}
+-
+-	if err != nil {
+-		log.Logger.Error("postgres: delete task error", "err", err)
+-		http.Error(w, "Server error", http.StatusInternalServerError)
+-		return
+-	}
+-
+-	log.Logger.Info("Task was deleted")
+-	w.WriteHeader(http.StatusOK)
+-}
+diff --git a/internal/log/logger.go b/internal/log/logger.go
+index dc0162a..eed8a6c 100644
+--- a/internal/log/logger.go
++++ b/internal/log/logger.go
+@@ -2,15 +2,43 @@ package log
+ 
+ import (
+ 	"io"
++	"log"
+ 	"log/slog"
+ 	"os"
++	"todo/internal/config"
+ )
+ 
+-func NewLogger(w io.Writer, level slog.Leveler) *slog.Logger {
+-	return slog.New(slog.NewTextHandler(w, &slog.HandlerOptions{
++func NewLogger(cfg config.Config) *slog.Logger {
++	var writer io.Writer = os.Stdout
++	
++	if cfg.LogPath != "" {
++		file, err := os.OpenFile(cfg.LogPath, os.O_CREATE | os.O_WRONLY | os.O_APPEND, 0644)
++
++		if err != nil {
++			log.Fatal("logger failed to initialize:", err)
++		}
++	
++		defer file.Close()
++		writer = file
++	}
++
++	var level slog.Level
++
++	switch cfg.LogLevel {
++	case "DEBUG":
++		level = -4
++	case "INFO":
++		level = 0
++	case "WARN":
++		level = 4
++	case "ERROR":
++		level = 8
++	default:
++		level = -4
++	}
++
++	return slog.New(slog.NewTextHandler(writer, &slog.HandlerOptions{
+ 		AddSource: true,
+ 		Level:     level,
+ 	}))
+ }
+-
+-var Logger = NewLogger(os.Stdout, slog.LevelDebug)
+diff --git a/internal/middleware/middleware.go b/internal/middleware/middleware.go
+index f41ce0b..acbf67a 100644
+--- a/internal/middleware/middleware.go
++++ b/internal/middleware/middleware.go
+@@ -2,12 +2,14 @@ package middleware
+ 
+ import (
+ 	"context"
++	"log/slog"
+ 	"net/http"
+ 	"time"
+ 	"todo/internal/http/context"
+-	"todo/internal/log"
+-	"todo/internal/storage/redis"
++	redis_ "todo/internal/storage/redis"
+ 	"todo/internal/utils/session"
++
++	"github.com/redis/go-redis/v9"
+ )
+ 
+ type wrappedWriter struct {
+@@ -28,10 +30,10 @@ var PublicRoutes = map[string]string{
+ 
+ const renewThreshold = 15 * 60
+ 
+-func LoggingMiddleWare(next http.Handler) http.Handler {
++func LoggingMiddleWare(next http.Handler, logger *slog.Logger) http.Handler {
+ 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+ 		req_start := time.Now()
+-		log.Logger.Info("request", "addr", r.RemoteAddr, "path", r.URL, "method", r.Method)
++		logger.Info("request", "addr", r.RemoteAddr, "path", r.URL, "method", r.Method)
+ 
+ 		wrapped := &wrappedWriter{
+ 			ResponseWriter: w,
+@@ -40,11 +42,11 @@ func LoggingMiddleWare(next http.Handler) http.Handler {
+ 
+ 		next.ServeHTTP(wrapped, r)
+ 
+-		log.Logger.Info("request", "response", wrapped.statusCode, "execution time", time.Since(req_start))
++		logger.Info("request", "response", wrapped.statusCode, "execution time", time.Since(req_start))
+ 	})
+ }
+ 
+-func AuthMiddleWare(next http.Handler) http.Handler {
++func AuthMiddleWare(next http.Handler, logger *slog.Logger, cache *redis.Client) http.Handler {
+ 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+ 		if val, ok := PublicRoutes[r.URL.Path]; ok && val == r.Method {
+ 			next.ServeHTTP(w, r)
+@@ -54,25 +56,24 @@ func AuthMiddleWare(next http.Handler) http.Handler {
+ 		session_cookie, err := r.Cookie("session_id")
+ 
+ 		if err != nil || session_cookie.Value == "" {
+-			log.Logger.Error("Session_id cookie missing", "err", err)
++			logger.Error("Session_id cookie missing", "err", err)
+ 			w.WriteHeader(http.StatusUnauthorized)
+ 			return
+ 		}
+ 
+-		session_s, err := redis.GetSession(session_cookie.Value)
++		session_s, err := redis_.GetSession(cache, session_cookie.Value)
+ 
+-		// improve error handling
+ 		if err != nil {
+-			log.Logger.Warn("Session not found", "err", err)
++			logger.Warn("Session not found", "err", err)
+ 			w.WriteHeader(http.StatusUnauthorized)
+ 			return
+ 		}
+ 
+ 		if session_s.EXP-time.Now().Unix() < renewThreshold {
+ 
+-			err = redis.RenewSession(session_cookie.Value)
++			err = redis_.RenewSession(cache, session_cookie.Value)
+ 			if err != nil {
+-				log.Logger.Error("Redis failed to renew session", "err", err)
++				logger.Error("Redis failed to renew session", "err", err)
+ 				w.WriteHeader(http.StatusInternalServerError)
+ 				return
+ 			}
+diff --git a/internal/storage/postgres/db.go b/internal/storage/postgres/db.go
+deleted file mode 100644
+index faf4359..0000000
+--- a/internal/storage/postgres/db.go
++++ /dev/null
+@@ -1,38 +0,0 @@
+-package db
+-
+-import (
+-	"database/sql"
+-	"todo/internal/log"
+-	"fmt"
+-	"os"
+-
+-	_ "github.com/lib/pq"
+-)
+-
+-var (
+-	DB          *sql.DB
+-	PG_HOST     = os.Getenv("PG_HOST")
+-	PG_USER     = os.Getenv("PG_USER")
+-	PG_PASSWORD = os.Getenv("PG_PASSWORD")
+-	DB_NAME     = os.Getenv("DB_NAME")
+-)
+-
+-func StartDB() {
+-	dsn := fmt.Sprintf("host=%s user=%s password=%s dbname=%s sslmode=disable",
+-		PG_HOST,
+-		PG_USER,
+-		PG_PASSWORD,
+-		DB_NAME,
+-	)
+-
+-	var err error
+-
+-	DB, err = sql.Open("postgres", dsn)
+-
+-	if err != nil {
+-		log.Logger.Error("postgres connection failed", "err", err)
+-		os.Exit(1)
+-	}
+-
+-	log.Logger.Info("postgres connection established")
+-}
+diff --git a/internal/storage/postgres/queries.go b/internal/storage/postgres/queries.go
+index 8042a56..5c7ef00 100644
+--- a/internal/storage/postgres/queries.go
++++ b/internal/storage/postgres/queries.go
+@@ -1,16 +1,16 @@
+-package db
++package postgres
+ 
+ import (
++	"database/sql"
+ 	"todo/internal/models"
+ 	"todo/internal/utils/password"
+ 	"todo/internal/utils/task"
+ )
+ 
+-func SelectTasks(query_params string, args []interface{}) ([]models.Task, error) {
++func SelectTasks(DB *sql.DB, query_params string, args []any) ([]models.Task, error) {
+ 	query := "SELECT * FROM tasks" + query_params
+ 
+ 	rows, err := DB.Query(query, args...)
+-
+ 	if err != nil {
+ 		return nil, err
+ 	}
+@@ -40,7 +40,7 @@ func SelectTasks(query_params string, args []interface{}) ([]models.Task, error)
+ 	return tasks, nil
+ }
+ 
+-func InsertTask(user_id int, task models.NewTask) error {
++func InsertTask(DB *sql.DB, user_id int, task models.NewTask) error {
+ 	task_utils.TrimSpace(&task)
+ 
+ 	_, err := DB.Exec("INSERT INTO tasks (user_id, title, due_date, priority, category) values ($1, $2, $3, $4, $5)",
+@@ -54,7 +54,7 @@ func InsertTask(user_id int, task models.NewTask) error {
+ 	return err
+ }
+ 
+-func SelectTask(user_id int, task_uuid string) (models.Task, error) {
++func SelectTask(DB *sql.DB, user_id int, task_uuid string) (models.Task, error) {
+ 	var task models.Task
+ 
+ 	row := DB.QueryRow("SELECT * FROM tasks WHERE user_id = $1 AND id = $2", user_id, task_uuid)
+@@ -76,13 +76,13 @@ func SelectTask(user_id int, task_uuid string) (models.Task, error) {
+ 	return task, nil
+ }
+ 
+-func UpdateTask(update_query string, args []any) error {
++func UpdateTask(DB *sql.DB, update_query string, args []any) error {
+ 	var i int
+ 
+-	user_id := args[len(args) - 2]
+-	task_uuid := args[len(args) - 1]
++	user_id := args[len(args)-2]
++	task_uuid := args[len(args)-1]
+ 
+-	row := DB.QueryRow("SELECT 1 FROM tasks WHERE user_id = $1 AND id = $2", user_id, task_uuid)  
++	row := DB.QueryRow("SELECT 1 FROM tasks WHERE user_id = $1 AND id = $2", user_id, task_uuid)
+ 
+ 	if err := row.Scan(&i); err != nil {
+ 		return err
+@@ -93,7 +93,7 @@ func UpdateTask(update_query string, args []any) error {
+ 	return err
+ }
+ 
+-func RemoveTask(user_id int, task_uuid string) (int64, error) {
++func RemoveTask(DB *sql.DB, user_id int, task_uuid string) (int64, error) {
+ 	res, err := DB.Exec("DELETE FROM tasks WHERE user_id = $1 AND id = $2", user_id, task_uuid)
+ 
+ 	rows_affected, _ := res.RowsAffected()
+@@ -101,7 +101,7 @@ func RemoveTask(user_id int, task_uuid string) (int64, error) {
+ 	return rows_affected, err
+ }
+ 
+-func TaskExists(user_id int, title string) bool {
++func TaskExists(DB *sql.DB, user_id int, title string) bool {
+ 	found := 0
+ 
+ 	row := DB.QueryRow("SELECT 1 FROM tasks WHERE user_id = $1 AND title = $2", user_id, title)
+@@ -113,7 +113,7 @@ func TaskExists(user_id int, title string) bool {
+ 	return true
+ }
+ 
+-func UserExistsByEmail(email string) bool {
++func UserExistsByEmail(DB *sql.DB, email string) bool {
+ 	i := 0
+ 	row := DB.QueryRow("SELECT 1 FROM users WHERE email = $1", email)
+ 
+@@ -122,7 +122,7 @@ func UserExistsByEmail(email string) bool {
+ 	return err == nil
+ }
+ 
+-func UserExistsByID(id int) bool {
++func UserExistsByID(DB *sql.DB, id int) bool {
+ 	i := 0
+ 	row := DB.QueryRow("SELECT 1 FROM users WHERE id = $1", id)
+ 
+@@ -131,7 +131,7 @@ func UserExistsByID(id int) bool {
+ 	return err == nil
+ }
+ 
+-func CreateUser(user models.User) error {
++func CreateUser(DB *sql.DB, user models.User) error {
+ 	hashed_password, err := password.Hash([]byte(user.Password))
+ 	if err != nil {
+ 		return err
+@@ -145,7 +145,7 @@ func CreateUser(user models.User) error {
+ 	return nil
+ }
+ 
+-func GetPassword(email string) (string, error) {
++func GetPassword(DB *sql.DB, email string) (string, error) {
+ 	var hashed_password string
+ 
+ 	row := DB.QueryRow("SELECT hashed_password FROM users WHERE email=$1", email)
+@@ -154,7 +154,7 @@ func GetPassword(email string) (string, error) {
+ 	return hashed_password, err
+ }
+ 
+-func GetUserID(email string) (int, error) {
++func GetUserID(DB *sql.DB, email string) (int, error) {
+ 	var id int
+ 
+ 	row := DB.QueryRow("SELECT id FROM users WHERE email=$1", email)
+@@ -164,9 +164,8 @@ func GetUserID(email string) (int, error) {
+ 	return id, err
+ }
+ 
+-func SelectAllTasks() ([]models.Task, error) {
++func SelectAllTasks(DB *sql.DB) ([]models.Task, error) {
+ 	rows, err := DB.Query("SELECT * FROM tasks")
+-
+ 	if err != nil {
+ 		return nil, err
+ 	}
+@@ -196,9 +195,8 @@ func SelectAllTasks() ([]models.Task, error) {
+ 	return tasks, nil
+ }
+ 
+-func SelectAllUsers() ([]models.DBuser, error) {
++func SelectAllUsers(DB *sql.DB) ([]models.DBuser, error) {
+ 	rows, err := DB.Query("SELECT * FROM users")
+-
+ 	if err != nil {
+ 		return nil, err
+ 	}
+diff --git a/internal/storage/redis/queries.go b/internal/storage/redis/queries.go
+index 4ea1597..a676213 100644
+--- a/internal/storage/redis/queries.go
++++ b/internal/storage/redis/queries.go
+@@ -5,9 +5,11 @@ import (
+ 	"encoding/json"
+ 	"time"
+ 	"todo/internal/models"
++	
++	"github.com/redis/go-redis/v9"
+ )
+ 
+-func StoreSession(session_uuid string, user_id int, ip string, ua string) error {
++func StoreSession(client *redis.Client, session_uuid string, user_id int, ip string, ua string) error {
+ 	ctx := context.Background()
+ 
+ 	var session models.Session
+@@ -19,23 +21,21 @@ func StoreSession(session_uuid string, user_id int, ip string, ua string) error
+ 	session.UA = ua
+ 
+ 	val, err := json.Marshal(session)
+-
+ 	if err != nil {
+ 		return err
+ 	}
+ 
+-	err = Client.Set(ctx, "session:"+session_uuid, val, time.Hour).Err()
++	err = client.Set(ctx, "session:"+session_uuid, val, time.Hour).Err()
+ 
+ 	return err
+ }
+ 
+-func GetSession(session_uuid string) (models.Session, error) {
++func GetSession(client *redis.Client, session_uuid string) (models.Session, error) {
+ 	ctx := context.Background()
+ 
+ 	var session models.Session
+ 
+-	res, err := Client.Get(ctx, "session:"+session_uuid).Result()
+-
++	res, err := client.Get(ctx, "session:"+session_uuid).Result()
+ 	if err != nil {
+ 		return session, err
+ 	}
+@@ -45,18 +45,18 @@ func GetSession(session_uuid string) (models.Session, error) {
+ 	return session, err
+ }
+ 
+-func GetDeleteSession(session_uuid string) (string, error) {
++func GetDeleteSession(client *redis.Client, session_uuid string) (string, error) {
+ 	ctx := context.Background()
+ 
+-	res, err := Client.GetDel(ctx, "session:"+session_uuid).Result()
++	res, err := client.GetDel(ctx, "session:"+session_uuid).Result()
+ 
+ 	return res, err
+ }
+ 
+-func RenewSession(session_uuid string) error {
++func RenewSession(client *redis.Client, session_uuid string) error {
+ 	ctx := context.Background()
+ 
+-	err := Client.Expire(ctx, "session:"+session_uuid, time.Hour).Err()
++	err := client.Expire(ctx, "session:"+session_uuid, time.Hour).Err()
+ 
+ 	return err
+ }
+diff --git a/internal/storage/redis/redis.go b/internal/storage/redis/redis.go
+index 58e02c8..74152d9 100644
+--- a/internal/storage/redis/redis.go
++++ b/internal/storage/redis/redis.go
+@@ -2,32 +2,28 @@ package redis
+ 
+ import (
+ 	"context"
+-	"todo/internal/log"
++	"log/slog"
+ 	"os"
++	"todo/internal/config"
+ 
+ 	"github.com/redis/go-redis/v9"
+ )
+ 
+-var (
+-	Client     redis.Client
+-	REDIS_HOST = os.Getenv("REDIS_HOST")
+-)
+-
+-
+-func StartRedis() {
+-	Client = *redis.NewClient(&redis.Options{
+-		Addr:     REDIS_HOST,
+-		Password: "",
+-		DB:       0,
+-		Protocol: 2,
++func StartRedis(cfg config.Config, logger *slog.Logger) *redis.Client {
++	Client := redis.NewClient(&redis.Options{
++		Addr:     cfg.RedisHost,
++		Password: cfg.RedisPassword,
++		DB:       cfg.RedisDb,
++		Protocol: cfg.RedisProtocol,
+ 	})
+ 
+ 	err := Client.Ping(context.Background()).Err()
+ 
+ 	if err != nil {
+-		log.Logger.Error("Redis connection failed", "err", err)
++		logger.Error("redis connection failed", "err", err)
+ 		os.Exit(1)
+ 	}
+ 
+-	log.Logger.Info("Redis connection established")
++	logger.Info("redis connection established")
++	return Client
+ }
+diff --git a/internal/utils/task/task.go b/internal/utils/task/task.go
+index 8a8d6b9..8af23dd 100644
+--- a/internal/utils/task/task.go
++++ b/internal/utils/task/task.go
+@@ -44,7 +44,7 @@ var allowedOrderBy = map[string]string{
+ 	"updated_at desc": "updated_at desc",
+ }
+ 
+-func GetDynamicQuery(user_id int, r *http.Request) (string, []interface{}, error) {
++func GetDynamicQuery(user_id int, r *http.Request) (string, []any, error) {
+ 	condition_query := " WHERE user_id = $1 AND"
+ 	operation_query := ""
+ 	query := ""
+@@ -112,7 +112,7 @@ func GetDynamicQuery(user_id int, r *http.Request) (string, []interface{}, error
+ 		param = strings.TrimSpace(param)
+ 
+ 		if param != "low" && param != "medium" && param != "high" {
+-			return "", args, errors.New("priority param not in ('low', 'medium', 'high')") 
++			return "", args, errors.New("priority param not in ('low', 'medium', 'high')")
+ 		}
+ 
+ 		priority_str := fmt.Sprintf(" priority = $%d", arg_ind)
+diff --git a/internal/utils/validators/validate.go b/internal/utils/validators/validate.go
+index d1621f4..9c46765 100644
+--- a/internal/utils/validators/validate.go
++++ b/internal/utils/validators/validate.go
+@@ -1,6 +1,7 @@
+ package validators
+ 
+ import (
++	"database/sql"
+ 	"encoding/json"
+ 	"errors"
+ 	"net/http"
+@@ -13,7 +14,7 @@ import (
+ 
+ const layout = "2006-01-02 15:04:05"
+ 
+-func ValidateTask(user_id int, task models.NewTask) error {
++func ValidateTask(DB *sql.DB, user_id int, task models.NewTask) error {
+ 	if task.Title == "" || task.Category == "" {
+ 		return errors.New("insertion requirements not met, can't be empty")
+ 	}
+@@ -22,7 +23,7 @@ func ValidateTask(user_id int, task models.NewTask) error {
+ 		return errors.New("insertion requirements not met, not valid string")
+ 	}
+ 
+-	if db.TaskExists(user_id, task.Title) {
++	if postgres.TaskExists(DB, user_id, task.Title) {
+ 		return errors.New("unique task violation: task already exists")
+ 	}
+ 
+@@ -42,7 +43,7 @@ func ValidateTask(user_id int, task models.NewTask) error {
+ var allowedEmailChars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789.-"
+ 
+ func ValidateEmail(email string) error {
+-	
++
+ 	if len(email) > 254 {
+ 		return errors.New("email size too large")
+ 	}
+@@ -144,7 +145,7 @@ func ValidatePassword(password string) error {
+ 	return nil
+ }
+ 
+-func GetValidateUpdateParams(user_id int, r *http.Request) (models.UpdateTask, error) {
++func GetValidateUpdateParams(DB *sql.DB, user_id int, r *http.Request) (models.UpdateTask, error) {
+ 	// Title
+ 
+ 	var update_task models.UpdateTask
+@@ -164,7 +165,7 @@ func GetValidateUpdateParams(user_id int, r *http.Request) (models.UpdateTask, e
+ 			return update_task, errors.New("update requirements not met, not valid string")
+ 		}
+ 
+-		if db.TaskExists(user_id, *update_task.Title) {
++		if postgres.TaskExists(DB, user_id, *update_task.Title) {
+ 			return update_task, errors.New("unique task violation: task already exists")
+ 		}
+ 	}

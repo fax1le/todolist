@@ -1,16 +1,16 @@
-package db
+package postgres
 
 import (
+	"database/sql"
 	"todo/internal/models"
 	"todo/internal/utils/password"
 	"todo/internal/utils/task"
 )
 
-func SelectTasks(query_params string, args []interface{}) ([]models.Task, error) {
+func SelectTasks(DB *sql.DB, query_params string, args []any) ([]models.Task, error) {
 	query := "SELECT * FROM tasks" + query_params
 
 	rows, err := DB.Query(query, args...)
-
 	if err != nil {
 		return nil, err
 	}
@@ -40,7 +40,7 @@ func SelectTasks(query_params string, args []interface{}) ([]models.Task, error)
 	return tasks, nil
 }
 
-func InsertTask(user_id int, task models.NewTask) error {
+func InsertTask(DB *sql.DB, user_id int, task models.NewTask) error {
 	task_utils.TrimSpace(&task)
 
 	_, err := DB.Exec("INSERT INTO tasks (user_id, title, due_date, priority, category) values ($1, $2, $3, $4, $5)",
@@ -54,7 +54,7 @@ func InsertTask(user_id int, task models.NewTask) error {
 	return err
 }
 
-func SelectTask(user_id int, task_uuid string) (models.Task, error) {
+func SelectTask(DB *sql.DB, user_id int, task_uuid string) (models.Task, error) {
 	var task models.Task
 
 	row := DB.QueryRow("SELECT * FROM tasks WHERE user_id = $1 AND id = $2", user_id, task_uuid)
@@ -76,13 +76,13 @@ func SelectTask(user_id int, task_uuid string) (models.Task, error) {
 	return task, nil
 }
 
-func UpdateTask(update_query string, args []any) error {
+func UpdateTask(DB *sql.DB, update_query string, args []any) error {
 	var i int
 
-	user_id := args[len(args) - 2]
-	task_uuid := args[len(args) - 1]
+	user_id := args[len(args)-2]
+	task_uuid := args[len(args)-1]
 
-	row := DB.QueryRow("SELECT 1 FROM tasks WHERE user_id = $1 AND id = $2", user_id, task_uuid)  
+	row := DB.QueryRow("SELECT 1 FROM tasks WHERE user_id = $1 AND id = $2", user_id, task_uuid)
 
 	if err := row.Scan(&i); err != nil {
 		return err
@@ -93,7 +93,7 @@ func UpdateTask(update_query string, args []any) error {
 	return err
 }
 
-func RemoveTask(user_id int, task_uuid string) (int64, error) {
+func RemoveTask(DB *sql.DB, user_id int, task_uuid string) (int64, error) {
 	res, err := DB.Exec("DELETE FROM tasks WHERE user_id = $1 AND id = $2", user_id, task_uuid)
 
 	rows_affected, _ := res.RowsAffected()
@@ -101,7 +101,7 @@ func RemoveTask(user_id int, task_uuid string) (int64, error) {
 	return rows_affected, err
 }
 
-func TaskExists(user_id int, title string) bool {
+func TaskExists(DB *sql.DB, user_id int, title string) bool {
 	found := 0
 
 	row := DB.QueryRow("SELECT 1 FROM tasks WHERE user_id = $1 AND title = $2", user_id, title)
@@ -113,7 +113,7 @@ func TaskExists(user_id int, title string) bool {
 	return true
 }
 
-func UserExistsByEmail(email string) bool {
+func UserExistsByEmail(DB *sql.DB, email string) bool {
 	i := 0
 	row := DB.QueryRow("SELECT 1 FROM users WHERE email = $1", email)
 
@@ -122,7 +122,7 @@ func UserExistsByEmail(email string) bool {
 	return err == nil
 }
 
-func UserExistsByID(id int) bool {
+func UserExistsByID(DB *sql.DB, id int) bool {
 	i := 0
 	row := DB.QueryRow("SELECT 1 FROM users WHERE id = $1", id)
 
@@ -131,7 +131,7 @@ func UserExistsByID(id int) bool {
 	return err == nil
 }
 
-func CreateUser(user models.User) error {
+func CreateUser(DB *sql.DB, user models.User) error {
 	hashed_password, err := password.Hash([]byte(user.Password))
 	if err != nil {
 		return err
@@ -145,7 +145,7 @@ func CreateUser(user models.User) error {
 	return nil
 }
 
-func GetPassword(email string) (string, error) {
+func GetPassword(DB *sql.DB, email string) (string, error) {
 	var hashed_password string
 
 	row := DB.QueryRow("SELECT hashed_password FROM users WHERE email=$1", email)
@@ -154,7 +154,7 @@ func GetPassword(email string) (string, error) {
 	return hashed_password, err
 }
 
-func GetUserID(email string) (int, error) {
+func GetUserID(DB *sql.DB, email string) (int, error) {
 	var id int
 
 	row := DB.QueryRow("SELECT id FROM users WHERE email=$1", email)
@@ -164,9 +164,8 @@ func GetUserID(email string) (int, error) {
 	return id, err
 }
 
-func SelectAllTasks() ([]models.Task, error) {
+func SelectAllTasks(DB *sql.DB) ([]models.Task, error) {
 	rows, err := DB.Query("SELECT * FROM tasks")
-
 	if err != nil {
 		return nil, err
 	}
@@ -196,9 +195,8 @@ func SelectAllTasks() ([]models.Task, error) {
 	return tasks, nil
 }
 
-func SelectAllUsers() ([]models.DBuser, error) {
+func SelectAllUsers(DB *sql.DB) ([]models.DBuser, error) {
 	rows, err := DB.Query("SELECT * FROM users")
-
 	if err != nil {
 		return nil, err
 	}

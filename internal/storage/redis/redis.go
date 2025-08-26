@@ -2,32 +2,28 @@ package redis
 
 import (
 	"context"
-	"todo/internal/log"
+	"log/slog"
 	"os"
+	"todo/internal/config"
 
 	"github.com/redis/go-redis/v9"
 )
 
-var (
-	Client     redis.Client
-	REDIS_HOST = os.Getenv("REDIS_HOST")
-)
-
-
-func StartRedis() {
-	Client = *redis.NewClient(&redis.Options{
-		Addr:     REDIS_HOST,
-		Password: "",
-		DB:       0,
-		Protocol: 2,
+func StartRedis(cfg config.Config, logger *slog.Logger) *redis.Client {
+	Client := redis.NewClient(&redis.Options{
+		Addr:     cfg.RedisHost,
+		Password: cfg.RedisPassword,
+		DB:       cfg.RedisDb,
+		Protocol: cfg.RedisProtocol,
 	})
 
 	err := Client.Ping(context.Background()).Err()
 
 	if err != nil {
-		log.Logger.Error("Redis connection failed", "err", err)
+		logger.Error("redis connection failed", "err", err)
 		os.Exit(1)
 	}
 
-	log.Logger.Info("Redis connection established")
+	logger.Info("redis connection established")
+	return Client
 }

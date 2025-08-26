@@ -44,7 +44,7 @@ var allowedOrderBy = map[string]string{
 	"updated_at desc": "updated_at desc",
 }
 
-func GetDynamicQuery(user_id int, r *http.Request) (string, []interface{}, error) {
+func GetDynamicQuery(user_id int, r *http.Request) (string, []any, error) {
 	condition_query := " WHERE user_id = $1 AND"
 	operation_query := ""
 	query := ""
@@ -112,7 +112,7 @@ func GetDynamicQuery(user_id int, r *http.Request) (string, []interface{}, error
 		param = strings.TrimSpace(param)
 
 		if param != "low" && param != "medium" && param != "high" {
-			return "", args, errors.New("priority param not in ('low', 'medium', 'high')") 
+			return "", args, errors.New("priority param not in ('low', 'medium', 'high')")
 		}
 
 		priority_str := fmt.Sprintf(" priority = $%d", arg_ind)

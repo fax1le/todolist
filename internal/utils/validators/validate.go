@@ -1,6 +1,7 @@
 package validators
 
 import (
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -13,7 +14,7 @@ import (
 
 const layout = "2006-01-02 15:04:05"
 
-func ValidateTask(user_id int, task models.NewTask) error {
+func ValidateTask(DB *sql.DB, user_id int, task models.NewTask) error {
 	if task.Title == "" || task.Category == "" {
 		return errors.New("insertion requirements not met, can't be empty")
 	}
@@ -22,7 +23,7 @@ func ValidateTask(user_id int, task models.NewTask) error {
 		return errors.New("insertion requirements not met, not valid string")
 	}
 
-	if db.TaskExists(user_id, task.Title) {
+	if postgres.TaskExists(DB, user_id, task.Title) {
 		return errors.New("unique task violation: task already exists")
 	}
 
@@ -42,7 +43,7 @@ func ValidateTask(user_id int, task models.NewTask) error {
 var allowedEmailChars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789.-"
 
 func ValidateEmail(email string) error {
-	
+
 	if len(email) > 254 {
 		return errors.New("email size too large")
 	}
@@ -144,7 +145,7 @@ func ValidatePassword(password string) error {
 	return nil
 }
 
-func GetValidateUpdateParams(user_id int, r *http.Request) (models.UpdateTask, error) {
+func GetValidateUpdateParams(DB *sql.DB, user_id int, r *http.Request) (models.UpdateTask, error) {
 	// Title
 
 	var update_task models.UpdateTask
@@ -164,7 +165,7 @@ func GetValidateUpdateParams(user_id int, r *http.Request) (models.UpdateTask, e
 			return update_task, errors.New("update requirements not met, not valid string")
 		}
 
-		if db.TaskExists(user_id, *update_task.Title) {
+		if postgres.TaskExists(DB, user_id, *update_task.Title) {
 			return update_task, errors.New("unique task violation: task already exists")
 		}
 	}

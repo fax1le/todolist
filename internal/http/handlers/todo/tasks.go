@@ -1,42 +1,49 @@
-package tasks
+package todo
 
 import (
 	"database/sql"
 	"encoding/json"
 	"net/http"
+	"log/slog"
 	"todo/internal/http/context"
-	"todo/internal/log"
 	"todo/internal/models"
 	"todo/internal/storage/postgres"
 	"todo/internal/utils/task"
 	"todo/internal/utils/validators"
+	
+	"github.com/redis/go-redis/v9"
 )
 
-func GetTasks(w http.ResponseWriter, r *http.Request) {
+
+type TasksHandler struct {
+	DB *sql.DB
+	Cache *redis.Client
+	Logger *slog.Logger
+}
+
+
+func (h *TasksHandler) GetTasks(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
 	val := r.Context().Value(ctx.UserIDKey)
 
 	user_id, ok := val.(int)
-
 	if !ok {
-		log.Logger.Error("request: failed to get context key value")
+		h.Logger.Error("request: failed to get context key value")
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
 
 	query_params, args, err := task_utils.GetDynamicQuery(user_id, r)
-
 	if err != nil {
-		log.Logger.Error("dynamic query error", "err", err)
+		h.Logger.Error("dynamic query error", "err", err)
 		http.Error(w, "Bad request", http.StatusBadRequest)
 		return
 	}
 
-	tasks, err := db.SelectTasks(query_params, args)
-
+	tasks, err := postgres.SelectTasks(h.DB, query_params, args)
 	if err != nil {
-		log.Logger.Info("postgres: select tasks error", "err", err)
+		h.Logger.Info("postgres: select tasks error", "err", err)
 		http.Error(w, "Server error", http.StatusInternalServerError)
 		return
 	}
@@ -45,15 +52,14 @@ func GetTasks(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(tasks)
 }
 
-func PostTask(w http.ResponseWriter, r *http.Request) {
+func (h *TasksHandler) PostTask(w http.ResponseWriter, r *http.Request) {
 	defer r.Body.Close()
 
 	val := r.Context().Value(ctx.UserIDKey)
 
 	user_id, ok := val.(int)
-
 	if !ok {
-		log.Logger.Error("request: failed to get context key value")
+		h.Logger.Error("request: failed to get context key value")
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
@@ -61,52 +67,47 @@ func PostTask(w http.ResponseWriter, r *http.Request) {
 	var new_task models.NewTask
 
 	err := json.NewDecoder(r.Body).Decode(&new_task)
-
 	if err != nil {
-		log.Logger.Error("request: parsing error", "err", err)
+		h.Logger.Error("request: parsing error", "err", err)
 		http.Error(w, "Bad request", http.StatusBadRequest)
 		return
 	}
 
-	err = validators.ValidateTask(user_id, new_task)
-
+	err = validators.ValidateTask(h.DB, user_id, new_task)
 	if err != nil {
-		log.Logger.Error("validate: task validation error", "err", err)
+		h.Logger.Error("validate: task validation error", "err", err)
 		http.Error(w, "Bad request", http.StatusBadRequest)
 		return
 	}
 
-	err = db.InsertTask(user_id, new_task)
-
+	err = postgres.InsertTask(h.DB, user_id, new_task)
 	if err != nil {
-		log.Logger.Error("postgres: insertion error", "err", err)
+		h.Logger.Error("postgres: insertion error", "err", err)
 		http.Error(w, "Server error", http.StatusInternalServerError)
 		return
 	}
 
-	log.Logger.Info("Task was created", "task", new_task.Title)
+	h.Logger.Info("Task was created", "task", new_task.Title)
 	w.WriteHeader(http.StatusCreated)
 }
 
-func GetTask(w http.ResponseWriter, r *http.Request) {
+func (h *TasksHandler) GetTask(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
 	val := r.Context().Value(ctx.UserIDKey)
 
 	user_id, ok := val.(int)
-
 	if !ok {
-		log.Logger.Error("request: failed to get context key value")
+		h.Logger.Error("request: failed to get context key value")
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
 
 	task_uuid := task_utils.GetTaskUUID(r.URL.Path)
 
-	task, err := db.SelectTask(user_id, task_uuid)
-
+	task, err := postgres.SelectTask(h.DB, user_id, task_uuid)
 	if err != nil {
-		log.Logger.Warn("postgres: task was not found", "err", err)
+		h.Logger.Warn("postgres: task was not found", "err", err)
 		http.Error(w, "Not found", http.StatusNotFound)
 		return
 	}
@@ -115,78 +116,74 @@ func GetTask(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(task)
 }
 
-func PatchTask(w http.ResponseWriter, r *http.Request) {
+func (h *TasksHandler) PatchTask(w http.ResponseWriter, r *http.Request) {
 	defer r.Body.Close()
 
 	val := r.Context().Value(ctx.UserIDKey)
 
 	user_id, ok := val.(int)
-
 	if !ok {
-		log.Logger.Error("request: failed to get context key value")
+		h.Logger.Error("request: failed to get context key value")
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
 
 	task_uuid := task_utils.GetTaskUUID(r.URL.Path)
 
-	update_task, err := validators.GetValidateUpdateParams(user_id, r)
-
+	update_task, err := validators.GetValidateUpdateParams(h.DB, user_id, r)
 	if err != nil {
-		log.Logger.Error("validate: update params validation failed", "err", err)
+		h.Logger.Error("validate: update params validation failed", "err", err)
 		http.Error(w, "Bad request", http.StatusBadRequest)
 		return
 	}
 
 	update_query, args := task_utils.GetUpdateQuery(user_id, task_uuid, update_task)
 
-	err = db.UpdateTask(update_query, args)
-
-	if err == sql.ErrNoRows {
-		log.Logger.Warn("postgres: task was not found", "err", err)
+	err = postgres.UpdateTask(h.DB, update_query, args)
+	if err != nil {
+		if err == sql.ErrNoRows {
+		h.Logger.Warn("postgres: task was not found", "err", err)
 		http.Error(w, "Not found", http.StatusNotFound)
 		return
 	}
 
-	if err != nil {
-		log.Logger.Error("postgres: update task error", "err", err)
+		h.Logger.Error("postgres: update task error", "err", err)
 		http.Error(w, "Server error", http.StatusInternalServerError)
 		return
 	}
 
-	log.Logger.Info("Task was updated")
+	h.Logger.Info("Task was updated")
 	w.WriteHeader(http.StatusOK)
 }
 
-func DeleteTask(w http.ResponseWriter, r *http.Request) {
+func (h *TasksHandler) DeleteTask(w http.ResponseWriter, r *http.Request) {
 	defer r.Body.Close()
 
 	val := r.Context().Value(ctx.UserIDKey)
 
 	user_id, ok := val.(int)
-
 	if !ok {
-		log.Logger.Error("request: failed to get context key value")
+		h.Logger.Error("request: failed to get context key value")
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
 
 	task_uuid := task_utils.GetTaskUUID(r.URL.Path)
 
-	rows_affected, err := db.RemoveTask(user_id, task_uuid)
+	rows_affected, err := postgres.RemoveTask(h.DB, user_id, task_uuid)
 
 	if rows_affected == 0 {
-		log.Logger.Warn("postgres: task was not found", "err", "psql: 0 rows affected")
+		h.Logger.Warn("postgres: task was not found", "err", "psql: 0 rows affected")
 		http.Error(w, "Not found", http.StatusNotFound)
 		return
 	}
 
 	if err != nil {
-		log.Logger.Error("postgres: delete task error", "err", err)
+		h.Logger.Error("postgres: delete task error", "err", err)
 		http.Error(w, "Server error", http.StatusInternalServerError)
 		return
 	}
 
-	log.Logger.Info("Task was deleted")
+	h.Logger.Info("Task was deleted")
 	w.WriteHeader(http.StatusOK)
 }
