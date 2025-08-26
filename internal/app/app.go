@@ -40,9 +40,26 @@ func New(cfg config.Config) *App {
 }
 
 func (app *App) Init() {
+	var err error
+
 	app.Logger,_ = log.NewLogger(app.Cfg)
-	app.DB = postgres.StartDB(app.Cfg, app.Logger)
-	app.Cache = redis_.StartRedis(app.Cfg, app.Logger)
+	app.DB, err = postgres.StartDB(app.Cfg, app.Logger)
+
+	if err != nil {
+		app.Logger.Error("postgres connection failed", "err", err)
+		os.Exit(1)
+	} else {
+		app.Logger.Info("postgres connection established")
+	}
+
+	app.Cache, err = redis_.StartRedis(app.Cfg, app.Logger)
+
+	if err != nil {
+		app.Logger.Error("redis connection failed", "err", err)
+		os.Exit(1)
+	} else {
+		app.Logger.Info("redis connection established")
+	}
 
 	authH := &auth.AuthHandler{DB: app.DB, Cache: app.Cache, Logger: app.Logger}
 

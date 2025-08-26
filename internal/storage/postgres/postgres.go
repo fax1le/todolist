@@ -4,13 +4,12 @@ import (
 	"database/sql"
 	"fmt"
 	"log/slog"
-	"os"
 	"todo/internal/config"
 
 	_ "github.com/lib/pq"
 )
 
-func StartDB(cfg config.Config, logger *slog.Logger) *sql.DB {
+func StartDB(cfg config.Config, logger *slog.Logger) (*sql.DB, error) {
 	dsn := fmt.Sprintf("host=%s user=%s password=%s dbname=%s sslmode=disable",
 		cfg.PGHost,
 		cfg.PGUser,
@@ -21,10 +20,10 @@ func StartDB(cfg config.Config, logger *slog.Logger) *sql.DB {
 	DB, err := sql.Open("postgres", dsn)
 
 	if err != nil {
-		logger.Error("postgres connection failed", "err", err)
-		os.Exit(1)
+		return DB, err
 	}
 
-	logger.Info("postgres connection established")
-	return DB
+	err = DB.Ping()
+
+	return DB, err
 }
