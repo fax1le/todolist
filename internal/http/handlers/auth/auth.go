@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"log/slog"
@@ -48,13 +49,16 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if postgres.UserExistsByEmail(h.DB, user.Email) {
+	db_ctx, db_cancel := context.WithTimeout(r.Context(), time.Second * 3)
+	defer db_cancel()
+
+	if postgres.UserExistsByEmail(h.DB, db_ctx, user.Email) {
 		h.Logger.Warn("User with provided email exists", "user", user.Email)
 		http.Error(w, "User with provided email exists", http.StatusConflict)
 		return
 	}
 
-	err = postgres.CreateUser(h.DB, user)
+	err = postgres.CreateUser(h.DB, db_ctx, user)
 	if err != nil {
 		h.Logger.Error("User creation error", "user", user.Email, "err", err)
 		http.Error(w, "Failed to register", http.StatusInternalServerError)
@@ -87,14 +91,17 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !postgres.UserExistsByEmail(h.DB, user.Email) {
+	db_ctx, db_cancel := context.WithTimeout(r.Context(), time.Second * 3)
+	defer db_cancel()
+
+	if !postgres.UserExistsByEmail(h.DB, db_ctx, user.Email) {
 		h.Logger.Warn("User does not exist", "user", user.Email)
 		time.Sleep(time.Second)
 		http.Error(w, "Invalid password", http.StatusUnauthorized)
 		return
 	}
 
-	hashed_password, err := postgres.GetPassword(h.DB, user.Email)
+	hashed_password, err := postgres.GetPassword(h.DB, db_ctx, user.Email)
 	if err != nil {
 		h.Logger.Error("Get password error", "err", err)
 		http.Error(w, "Server error", http.StatusInternalServerError)
@@ -107,7 +114,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user_id, err := postgres.GetUserID(h.DB, user.Email)
+	user_id, err := postgres.GetUserID(h.DB, db_ctx, user.Email)
 	if err != nil {
 		h.Logger.Error("Get user_id error", "err", err)
 		http.Error(w, "Server error", http.StatusInternalServerError)
@@ -120,7 +127,10 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 
 	ua := session.Truncate(r.UserAgent(), 200)
 
-	err = redis_.StoreSession(h.Cache, session_uuid, user_id, ip, ua)
+	redis_ctx, redis_cancel := context.WithTimeout(r.Context(), time.Second)
+	defer redis_cancel()
+
+	err = redis_.StoreSession(h.Cache, redis_ctx, session_uuid, user_id, ip, ua)
 	if err != nil {
 		h.Logger.Error("Failed to save refresh token", "user", user.Email, "err", err)
 		http.Error(w, "Login failed", http.StatusInternalServerError)
@@ -145,7 +155,10 @@ func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user_session_data, err := redis_.GetDeleteSession(h.Cache, session_cookie.Value)
+	redis_ctx, redis_cancel := context.WithTimeout(r.Context(), time.Second)
+	defer redis_cancel()
+
+	user_session_data, err := redis_.GetDeleteSession(h.Cache, redis_ctx, session_cookie.Value)
 	if err != nil {
 		h.Logger.Info("session_id not found", "err", err)
 	} else {

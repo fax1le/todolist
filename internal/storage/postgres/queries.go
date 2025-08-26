@@ -2,15 +2,16 @@ package postgres
 
 import (
 	"database/sql"
+	"context"
 	"todo/internal/models"
 	"todo/internal/utils/password"
 	"todo/internal/utils/task"
 )
 
-func SelectTasks(DB *sql.DB, query_params string, args []any) ([]models.Task, error) {
+func SelectTasks(DB *sql.DB, ctx context.Context, query_params string, args []any) ([]models.Task, error) {
 	query := "SELECT * FROM tasks" + query_params
 
-	rows, err := DB.Query(query, args...)
+	rows, err := DB.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -40,10 +41,10 @@ func SelectTasks(DB *sql.DB, query_params string, args []any) ([]models.Task, er
 	return tasks, nil
 }
 
-func InsertTask(DB *sql.DB, user_id int, task models.NewTask) error {
+func InsertTask(DB *sql.DB, ctx context.Context, user_id int, task models.NewTask) error {
 	task_utils.TrimSpace(&task)
 
-	_, err := DB.Exec("INSERT INTO tasks (user_id, title, due_date, priority, category) values ($1, $2, $3, $4, $5)",
+	_, err := DB.ExecContext(ctx, "INSERT INTO tasks (user_id, title, due_date, priority, category) values ($1, $2, $3, $4, $5)",
 		user_id,
 		task.Title,
 		task.Due_date,
@@ -54,10 +55,10 @@ func InsertTask(DB *sql.DB, user_id int, task models.NewTask) error {
 	return err
 }
 
-func SelectTask(DB *sql.DB, user_id int, task_uuid string) (models.Task, error) {
+func SelectTask(DB *sql.DB, ctx context.Context, user_id int, task_uuid string) (models.Task, error) {
 	var task models.Task
 
-	row := DB.QueryRow("SELECT * FROM tasks WHERE user_id = $1 AND id = $2", user_id, task_uuid)
+	row := DB.QueryRowContext(ctx, "SELECT * FROM tasks WHERE user_id = $1 AND id = $2", user_id, task_uuid)
 
 	if err := row.Scan(
 		&task.ID,
@@ -76,35 +77,35 @@ func SelectTask(DB *sql.DB, user_id int, task_uuid string) (models.Task, error) 
 	return task, nil
 }
 
-func UpdateTask(DB *sql.DB, update_query string, args []any) error {
+func UpdateTask(DB *sql.DB, ctx context.Context, update_query string, args []any) error {
 	var i int
 
 	user_id := args[len(args)-2]
 	task_uuid := args[len(args)-1]
 
-	row := DB.QueryRow("SELECT 1 FROM tasks WHERE user_id = $1 AND id = $2", user_id, task_uuid)
+	row := DB.QueryRowContext(ctx, "SELECT 1 FROM tasks WHERE user_id = $1 AND id = $2", user_id, task_uuid)
 
 	if err := row.Scan(&i); err != nil {
 		return err
 	}
 
-	_, err := DB.Exec(update_query, args...)
+	_, err := DB.ExecContext(ctx, update_query, args...)
 
 	return err
 }
 
-func RemoveTask(DB *sql.DB, user_id int, task_uuid string) (int64, error) {
-	res, err := DB.Exec("DELETE FROM tasks WHERE user_id = $1 AND id = $2", user_id, task_uuid)
+func RemoveTask(DB *sql.DB, ctx context.Context, user_id int, task_uuid string) (int64, error) {
+	res, err := DB.ExecContext(ctx, "DELETE FROM tasks WHERE user_id = $1 AND id = $2", user_id, task_uuid)
 
 	rows_affected, _ := res.RowsAffected()
 
 	return rows_affected, err
 }
 
-func TaskExists(DB *sql.DB, user_id int, title string) bool {
+func TaskExists(DB *sql.DB, ctx context.Context, user_id int, title string) bool {
 	found := 0
 
-	row := DB.QueryRow("SELECT 1 FROM tasks WHERE user_id = $1 AND title = $2", user_id, title)
+	row := DB.QueryRowContext(ctx, "SELECT 1 FROM tasks WHERE user_id = $1 AND title = $2", user_id, title)
 
 	if err := row.Scan(&found); err != nil {
 		return false
@@ -113,31 +114,31 @@ func TaskExists(DB *sql.DB, user_id int, title string) bool {
 	return true
 }
 
-func UserExistsByEmail(DB *sql.DB, email string) bool {
+func UserExistsByEmail(DB *sql.DB, ctx context.Context, email string) bool {
 	i := 0
-	row := DB.QueryRow("SELECT 1 FROM users WHERE email = $1", email)
+	row := DB.QueryRowContext(ctx, "SELECT 1 FROM users WHERE email = $1", email)
 
 	err := row.Scan(&i)
 
 	return err == nil
 }
 
-func UserExistsByID(DB *sql.DB, id int) bool {
+func UserExistsByID(DB *sql.DB, ctx context.Context, id int) bool {
 	i := 0
-	row := DB.QueryRow("SELECT 1 FROM users WHERE id = $1", id)
+	row := DB.QueryRowContext(ctx, "SELECT 1 FROM users WHERE id = $1", id)
 
 	err := row.Scan(&i)
 
 	return err == nil
 }
 
-func CreateUser(DB *sql.DB, user models.User) error {
+func CreateUser(DB *sql.DB, ctx context.Context, user models.User) error {
 	hashed_password, err := password.Hash([]byte(user.Password))
 	if err != nil {
 		return err
 	}
 
-	_, err = DB.Exec("INSERT INTO users (email, hashed_password) VALUES ($1, $2)", user.Email, hashed_password)
+	_, err = DB.ExecContext(ctx, "INSERT INTO users (email, hashed_password) VALUES ($1, $2)", user.Email, hashed_password)
 	if err != nil {
 		return err
 	}
@@ -145,27 +146,27 @@ func CreateUser(DB *sql.DB, user models.User) error {
 	return nil
 }
 
-func GetPassword(DB *sql.DB, email string) (string, error) {
+func GetPassword(DB *sql.DB, ctx context.Context, email string) (string, error) {
 	var hashed_password string
 
-	row := DB.QueryRow("SELECT hashed_password FROM users WHERE email=$1", email)
+	row := DB.QueryRowContext(ctx, "SELECT hashed_password FROM users WHERE email=$1", email)
 	err := row.Scan(&hashed_password)
 
 	return hashed_password, err
 }
 
-func GetUserID(DB *sql.DB, email string) (int, error) {
+func GetUserID(DB *sql.DB, ctx context.Context, email string) (int, error) {
 	var id int
 
-	row := DB.QueryRow("SELECT id FROM users WHERE email=$1", email)
+	row := DB.QueryRowContext(ctx, "SELECT id FROM users WHERE email=$1", email)
 
 	err := row.Scan(&id)
 
 	return id, err
 }
 
-func SelectAllTasks(DB *sql.DB) ([]models.Task, error) {
-	rows, err := DB.Query("SELECT * FROM tasks")
+func SelectAllTasks(DB *sql.DB, ctx context.Context) ([]models.Task, error) {
+	rows, err := DB.QueryContext(ctx, "SELECT * FROM tasks")
 	if err != nil {
 		return nil, err
 	}
@@ -195,8 +196,8 @@ func SelectAllTasks(DB *sql.DB) ([]models.Task, error) {
 	return tasks, nil
 }
 
-func SelectAllUsers(DB *sql.DB) ([]models.DBuser, error) {
-	rows, err := DB.Query("SELECT * FROM users")
+func SelectAllUsers(DB *sql.DB, ctx context.Context) ([]models.DBuser, error) {
+	rows, err := DB.QueryContext(ctx, "SELECT * FROM users")
 	if err != nil {
 		return nil, err
 	}

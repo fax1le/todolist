@@ -61,7 +61,10 @@ func AuthMiddleWare(next http.Handler, logger *slog.Logger, cache *redis.Client)
 			return
 		}
 
-		session_s, err := redis_.GetSession(cache, session_cookie.Value)
+		redis_ctx, redis_cancel := context.WithTimeout(r.Context(), time.Second)
+		defer redis_cancel()
+
+		session_s, err := redis_.GetSession(cache, redis_ctx, session_cookie.Value)
 
 		if err != nil {
 			logger.Warn("Session not found", "err", err)
@@ -71,7 +74,7 @@ func AuthMiddleWare(next http.Handler, logger *slog.Logger, cache *redis.Client)
 
 		if session_s.EXP-time.Now().Unix() < renewThreshold {
 
-			err = redis_.RenewSession(cache, session_cookie.Value)
+			err = redis_.RenewSession(cache, redis_ctx, session_cookie.Value)
 			if err != nil {
 				logger.Error("Redis failed to renew session", "err", err)
 				w.WriteHeader(http.StatusInternalServerError)

@@ -1,16 +1,18 @@
 package todo
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
-	"net/http"
 	"log/slog"
+	"net/http"
+	"time"
 	"todo/internal/http/context"
 	"todo/internal/models"
 	"todo/internal/storage/postgres"
 	"todo/internal/utils/task"
 	"todo/internal/utils/validators"
-	
+
 	"github.com/redis/go-redis/v9"
 )
 
@@ -41,7 +43,10 @@ func (h *TasksHandler) GetTasks(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tasks, err := postgres.SelectTasks(h.DB, query_params, args)
+	db_ctx, db_cancel := context.WithTimeout(r.Context(), time.Second * 3)
+	defer db_cancel()
+
+	tasks, err := postgres.SelectTasks(h.DB, db_ctx, query_params, args)
 	if err != nil {
 		h.Logger.Info("postgres: select tasks error", "err", err)
 		http.Error(w, "Server error", http.StatusInternalServerError)
@@ -73,14 +78,17 @@ func (h *TasksHandler) PostTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = validators.ValidateTask(h.DB, user_id, new_task)
+	db_ctx, db_cancel := context.WithTimeout(r.Context(), time.Second * 3)
+	defer db_cancel()
+
+	err = validators.ValidateTask(h.DB, db_ctx, user_id, new_task)
 	if err != nil {
 		h.Logger.Error("validate: task validation error", "err", err)
 		http.Error(w, "Bad request", http.StatusBadRequest)
 		return
 	}
 
-	err = postgres.InsertTask(h.DB, user_id, new_task)
+	err = postgres.InsertTask(h.DB, db_ctx, user_id, new_task)
 	if err != nil {
 		h.Logger.Error("postgres: insertion error", "err", err)
 		http.Error(w, "Server error", http.StatusInternalServerError)
@@ -105,7 +113,10 @@ func (h *TasksHandler) GetTask(w http.ResponseWriter, r *http.Request) {
 
 	task_uuid := task_utils.GetTaskUUID(r.URL.Path)
 
-	task, err := postgres.SelectTask(h.DB, user_id, task_uuid)
+	db_ctx, db_cancel := context.WithTimeout(r.Context(), time.Second * 3)
+	defer db_cancel()
+
+	task, err := postgres.SelectTask(h.DB, db_ctx, user_id, task_uuid)
 	if err != nil {
 		h.Logger.Warn("postgres: task was not found", "err", err)
 		http.Error(w, "Not found", http.StatusNotFound)
@@ -130,7 +141,10 @@ func (h *TasksHandler) PatchTask(w http.ResponseWriter, r *http.Request) {
 
 	task_uuid := task_utils.GetTaskUUID(r.URL.Path)
 
-	update_task, err := validators.GetValidateUpdateParams(h.DB, user_id, r)
+	db_ctx, db_cancel := context.WithTimeout(r.Context(), time.Second * 3)
+	defer db_cancel()
+
+	update_task, err := validators.GetValidateUpdateParams(h.DB, db_ctx, user_id, r)
 	if err != nil {
 		h.Logger.Error("validate: update params validation failed", "err", err)
 		http.Error(w, "Bad request", http.StatusBadRequest)
@@ -139,7 +153,7 @@ func (h *TasksHandler) PatchTask(w http.ResponseWriter, r *http.Request) {
 
 	update_query, args := task_utils.GetUpdateQuery(user_id, task_uuid, update_task)
 
-	err = postgres.UpdateTask(h.DB, update_query, args)
+	err = postgres.UpdateTask(h.DB, db_ctx, update_query, args)
 	if err != nil {
 		if err == sql.ErrNoRows {
 		h.Logger.Warn("postgres: task was not found", "err", err)
@@ -170,7 +184,10 @@ func (h *TasksHandler) DeleteTask(w http.ResponseWriter, r *http.Request) {
 
 	task_uuid := task_utils.GetTaskUUID(r.URL.Path)
 
-	rows_affected, err := postgres.RemoveTask(h.DB, user_id, task_uuid)
+	db_ctx, db_cancel := context.WithTimeout(r.Context(), time.Second * 3)
+	defer db_cancel()
+
+	rows_affected, err := postgres.RemoveTask(h.DB, db_ctx, user_id, task_uuid)
 
 	if rows_affected == 0 {
 		h.Logger.Warn("postgres: task was not found", "err", "psql: 0 rows affected")

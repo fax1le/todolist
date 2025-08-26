@@ -9,9 +9,7 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-func StoreSession(client *redis.Client, session_uuid string, user_id int, ip string, ua string) error {
-	ctx := context.Background()
-
+func StoreSession(client *redis.Client, ctx context.Context, session_uuid string, user_id int, ip string, ua string) error {
 	var session models.Session
 
 	session.UID = user_id
@@ -30,9 +28,7 @@ func StoreSession(client *redis.Client, session_uuid string, user_id int, ip str
 	return err
 }
 
-func GetSession(client *redis.Client, session_uuid string) (models.Session, error) {
-	ctx := context.Background()
-
+func GetSession(client *redis.Client, ctx context.Context, session_uuid string) (models.Session, error) {
 	var session models.Session
 
 	res, err := client.Get(ctx, "session:"+session_uuid).Result()
@@ -45,18 +41,12 @@ func GetSession(client *redis.Client, session_uuid string) (models.Session, erro
 	return session, err
 }
 
-func GetDeleteSession(client *redis.Client, session_uuid string) (string, error) {
-	ctx := context.Background()
-
+func GetDeleteSession(client *redis.Client, ctx context.Context, session_uuid string) (string, error) {
 	res, err := client.GetDel(ctx, "session:"+session_uuid).Result()
-
 	return res, err
 }
 
-func RenewSession(client *redis.Client, session_uuid string) error {
-	ctx := context.Background()
-
+func RenewSession(client *redis.Client, ctx context.Context, session_uuid string) error {
 	err := client.Expire(ctx, "session:"+session_uuid, time.Hour).Err()
-
 	return err
 }
