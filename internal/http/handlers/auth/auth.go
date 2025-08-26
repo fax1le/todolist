@@ -127,10 +127,10 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 
 	ua := session.Truncate(r.UserAgent(), 200)
 
-	redis_ctx, redis_cancel := context.WithTimeout(r.Context(), time.Second)
-	defer redis_cancel()
+	cache_ctx, cache_cancel := context.WithTimeout(r.Context(), time.Second)
+	defer cache_cancel()
 
-	err = redis_.StoreSession(h.Cache, redis_ctx, session_uuid, user_id, ip, ua)
+	err = redis_.StoreSession(h.Cache, cache_ctx, session_uuid, user_id, ip, ua)
 	if err != nil {
 		h.Logger.Error("Failed to save refresh token", "user", user.Email, "err", err)
 		http.Error(w, "Login failed", http.StatusInternalServerError)
@@ -155,10 +155,10 @@ func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	redis_ctx, redis_cancel := context.WithTimeout(r.Context(), time.Second)
-	defer redis_cancel()
+	cache_ctx, cache_cancel := context.WithTimeout(r.Context(), time.Second)
+	defer cache_cancel()
 
-	user_session_data, err := redis_.GetDeleteSession(h.Cache, redis_ctx, session_cookie.Value)
+	user_session_data, err := redis_.GetDeleteSession(h.Cache, cache_ctx, session_cookie.Value)
 	if err != nil {
 		h.Logger.Info("session_id not found", "err", err)
 	} else {
