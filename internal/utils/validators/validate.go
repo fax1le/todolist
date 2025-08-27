@@ -28,6 +28,10 @@ func ValidateTask(DB *sql.DB, ctx context.Context, user_id int, task models.NewT
 		return errors.New("unique task violation: task already exists")
 	}
 
+	if task.Priority != "low" && task.Priority != "medium" && task.Priority != "high" {
+			return errors.New("insertion requirements not met, priority must be in ('low', 'medium', 'high')")
+		} 
+
 	date, err := time.Parse(layout, task.Due_date)
 
 	if err != nil {

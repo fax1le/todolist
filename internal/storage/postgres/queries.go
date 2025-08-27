@@ -9,7 +9,7 @@ import (
 )
 
 func SelectTasks(DB *sql.DB, ctx context.Context, query_params string, args []any) ([]models.Task, error) {
-	query := "SELECT * FROM tasks" + query_params
+	query := "SELECT title, completed, due_date, created_at, updated_at, priority, category FROM tasks" + query_params
 
 	rows, err := DB.QueryContext(ctx, query, args...)
 	if err != nil {
@@ -24,8 +24,6 @@ func SelectTasks(DB *sql.DB, ctx context.Context, query_params string, args []an
 		var task models.Task
 
 		if err := rows.Scan(
-			&task.ID,
-			&task.User_ID,
 			&task.Title,
 			&task.Completed,
 			&task.Due_date,
@@ -58,11 +56,9 @@ func InsertTask(DB *sql.DB, ctx context.Context, user_id int, task models.NewTas
 func SelectTask(DB *sql.DB, ctx context.Context, user_id int, task_uuid string) (models.Task, error) {
 	var task models.Task
 
-	row := DB.QueryRowContext(ctx, "SELECT * FROM tasks WHERE user_id = $1 AND id = $2", user_id, task_uuid)
+	row := DB.QueryRowContext(ctx, "SELECT title, completed, due_date, created_at, updated_at, priority, category FROM tasks WHERE user_id = $1 AND id = $2", user_id, task_uuid)
 
 	if err := row.Scan(
-		&task.ID,
-		&task.User_ID,
 		&task.Title,
 		&task.Completed,
 		&task.Due_date,
@@ -165,7 +161,7 @@ func GetUserID(DB *sql.DB, ctx context.Context, email string) (int, error) {
 	return id, err
 }
 
-func SelectAllTasks(DB *sql.DB, ctx context.Context) ([]models.Task, error) {
+func SelectAllTasks(DB *sql.DB, ctx context.Context) ([]models.DBtask, error) {
 	rows, err := DB.QueryContext(ctx, "SELECT * FROM tasks")
 	if err != nil {
 		return nil, err
@@ -173,10 +169,10 @@ func SelectAllTasks(DB *sql.DB, ctx context.Context) ([]models.Task, error) {
 
 	defer rows.Close()
 
-	var tasks []models.Task
+	var tasks []models.DBtask
 
 	for rows.Next() {
-		var task models.Task
+		var task models.DBtask
 
 		if err := rows.Scan(
 			&task.ID,

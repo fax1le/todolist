@@ -1,8 +1,6 @@
 package models
 
 type Task struct {
-	ID         string `json:"id"`
-	User_ID    string `json:"user_id"`
 	Title      string `json:"title"`
 	Completed  bool   `json:"completed"`
 	Due_date   string `json:"due"`
@@ -30,6 +28,18 @@ type UpdateTask struct {
 type User struct {
 	Email    string `json:"email"`
 	Password string `json:"password"`
+}
+
+type DBtask struct {
+	ID         string `json:"id"`
+	User_ID    string `json:"user_id"`
+	Title      string `json:"title"`
+	Completed  bool   `json:"completed"`
+	Due_date   string `json:"due"`
+	Created_at string `json:"created_at"`
+	Updated_at string `json:"updated_at"`
+	Priority   string `json:"priority"`
+	Category   string `json:"category"`
 }
 
 type DBuser struct {
