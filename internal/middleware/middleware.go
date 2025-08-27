@@ -23,9 +23,9 @@ func (w *wrappedWriter) WriteHeader(statusCode int) {
 }
 
 var PublicRoutes = map[string]string{
-	"/health":   "GET",
-	"/register": "POST",
-	"/login":    "POST",
+	"/health":   "/health",
+	"/register": "/register",
+	"/login":    "/login",
 }
 
 const renewThreshold = 15 * 60
@@ -48,7 +48,7 @@ func LoggingMiddleWare(next http.Handler, logger *slog.Logger) http.Handler {
 
 func AuthMiddleWare(next http.Handler, logger *slog.Logger, cache *redis.Client) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if val, ok := PublicRoutes[r.URL.Path]; ok && val == r.Method {
+		if _, ok := PublicRoutes[r.URL.Path]; ok {
 			next.ServeHTTP(w, r)
 			return
 		}
