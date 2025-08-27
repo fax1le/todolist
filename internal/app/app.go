@@ -65,10 +65,12 @@ func (app *App) Init() {
 
 	tasksH := &todo.TasksHandler{DB: app.DB, Cache: app.Cache, Logger: app.Logger}
 
-	base := &handlers.BaseHandler{AuthHandler: authH, TasksHandler: tasksH}
+	mux := http.NewServeMux()
+	base := &handlers.BaseHandler{AuthHandler: authH, TasksHandler: tasksH, Mux: mux}
+	base.HandleRoutes()
 
 	middleware := middleware.LoggingMiddleWare(
-		middleware.AuthMiddleWare(base, app.Logger, app.Cache),
+		middleware.AuthMiddleWare(base.Mux, app.Logger, app.Cache),
 		app.Logger)
 
 	app.Server.Handler = middleware
